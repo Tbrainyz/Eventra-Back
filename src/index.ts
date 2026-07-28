@@ -54,7 +54,8 @@ setupGlobalErrorHandlers();
 app.use("/api", emailRoutes);
 
 // CORS configuration
-// CORS configuration
+const normalizeOrigin = (url: string) => url.replace(/\/$/, "");
+
 const allowedOrigins = [
   env.CLIENT_URL,
   "http://localhost:4000",
@@ -63,16 +64,16 @@ const allowedOrigins = [
   "http://127.0.0.1:4000",
   "http://127.0.0.1:4001",
   "http://127.0.0.1:4002",
-].filter(Boolean);
-
+]
+  .filter(Boolean)
+  .map(normalizeOrigin);
 const corsOptions: cors.CorsOptions = {
   origin: (origin, callback) => {
-    // Allow requests without an Origin header (Postman, mobile apps, server-to-server)
     if (!origin) {
       return callback(null, true);
     }
 
-    if (allowedOrigins.includes(origin)) {
+    if (allowedOrigins.includes(normalizeOrigin(origin))) {
       return callback(null, true);
     }
 
