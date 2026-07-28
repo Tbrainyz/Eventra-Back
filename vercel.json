@@ -1,0 +1,29 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "api/index.ts",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "api/index.ts"
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron-email",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron-payouts",
+      "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron-promotion-expiry",
+      "schedule": "0 * * * *"
+    }
+  ]
+}
