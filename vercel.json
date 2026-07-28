@@ -2,14 +2,20 @@
   "version": 2,
   "builds": [
     {
-      "src": "api/index.ts",
+      "src": "src/index.ts",
       "use": "@vercel/node"
     }
   ],
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "api/index.ts"
+      "dest": "src/index.ts"
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron-payouts",
+      "schedule": "0 3 * * *"
     }
   ]
 }
