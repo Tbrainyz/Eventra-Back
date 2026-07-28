@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import {
   cancelReservation,
+  getOrderByReference,
   getTicketQrCode,
   initializeCheckout,
   myTickets,
@@ -19,6 +20,10 @@ router.post('/rsvp/:eventId', verifySession, customRateLimiter(10), rsvpFreeEven
 router.post('/checkout/:eventId', verifySession, customRateLimiter(10), validateFormData(checkoutSchema), initializeCheckout)
 
 router.get('/my-tickets', verifySession, myTickets)
+
+// Polled by /checkout/callback on the client after the Paystack redirect —
+// keep this above '/:ticketId/qrcode' so 'orders' isn't swallowed as a ticketId.
+router.get('/orders/:reference', verifySession, getOrderByReference)
 
 router.get('/:ticketId/qrcode', verifySession, getTicketQrCode)
 

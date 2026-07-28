@@ -66,7 +66,8 @@ export const listSavedEvents = tryCatchWrapper(async (req: Request, res: Respons
     .populate({
       path: 'savedEvents',
       match: { status: 'approved' },
-      select: 'title slug startDate venue coverImage type',
+      select: 'title slug startDate venue coverImage type category minPrice isPromoted',
+      populate: { path: 'category', select: 'name slug' },
     })
     .lean()
 

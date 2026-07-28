@@ -31,7 +31,13 @@ export const createSessionMiddleware = () => {
       maxAge: SESSION_MAX_AGE,
       httpOnly: true, // Prevent XSS attacks
       secure: env.NODE_ENV === 'production', // HTTPS only in production
-      sameSite: 'lax', // CSRF protection (None required for cross-site cookies)
+      // 'none' is required for the cookie to be sent on cross-site requests
+      // at all (frontend and backend on different domains, as in this
+      // deployed setup) — 'lax' blocks it on fetch/XHR entirely, it only
+      // allows top-level navigations. 'none' requires secure:true, which
+      // only holds in production (matches the line above), so 'lax' stays
+      // the right choice for local http:// dev.
+      sameSite: env.NODE_ENV === 'production' ? 'none' : 'lax',
     },
     rolling: true, // Refresh expiration on every response
   })

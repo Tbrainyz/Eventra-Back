@@ -37,6 +37,31 @@ export const rsvpFreeEvent = tryCatchWrapper(async (req: Request, res: Response)
   }
 })
 
+/**
+ * Lets the client poll "did my payment go through?" after Paystack redirects
+ * back to /checkout/callback?reference=... . Order status only ever changes
+ * via the webhook (handleTicketOrderPayment in payment.controller.ts) once
+ * Paystack itself confirms the transaction — this just reads that status,
+ * it never sets it, so there's no way to spoof a paid order from the client.
+ */
+export const getOrderByReference = tryCatchWrapper(async (req: Request, res: Response) => {
+  const { reference } = req.params
+
+  const order = await Order.findOne({ paystackReference: reference, buyer: req.session.userId })
+    .populate('event', 'title slug startDate venue coverImage')
+    .lean()
+
+  if (!order) {
+    return sendTsRestError(res, 404, 'Order not found')
+  }
+
+  return sendTsRestSuccess(res, 200, {
+    success: true,
+    message: 'Order fetched',
+    body: order,
+  })
+})
+
 export const initializeCheckout = tryCatchWrapper(async (req: Request, res: Response) => {
   const { eventId } = req.params
   const { items } = req.body as { items: { ticketTypeId: string; quantity: number }[] }
@@ -186,6 +211,7 @@ export const requestRefund = tryCatchWrapper(async (req: Request, res: Response)
 export const myTickets = tryCatchWrapper(async (req: Request, res: Response) => {
   const tickets = await Ticket.find({ attendee: req.session.userId })
     .populate('event', 'title slug startDate venue coverImage')
+    .populate('ticketType', 'name')
     .sort({ createdAt: -1 })
     .lean()
 
