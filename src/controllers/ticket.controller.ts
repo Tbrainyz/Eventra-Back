@@ -19,6 +19,7 @@ const NAIRA_TO_KOBO = 100
 
 export const rsvpFreeEvent = tryCatchWrapper(async (req: Request, res: Response) => {
   const { eventId } = req.params
+  const { guests } = req.body as { guests?: number }
 
   const user = await User.findById(req.session.userId)
   if (!user) {
@@ -26,11 +27,11 @@ export const rsvpFreeEvent = tryCatchWrapper(async (req: Request, res: Response)
   }
 
   try {
-    const ticket = await TicketService.rsvpToFreeEvent(eventId as string, user)
+    const tickets = await TicketService.rsvpToFreeEvent(eventId as string, user, guests ?? 1)
     return sendTsRestSuccess(res, 201, {
       success: true,
-      message: 'Reservation confirmed',
-      body: ticket.toObject(),
+      message: tickets.length > 1 ? `Reservation confirmed for ${tickets.length} guests` : 'Reservation confirmed',
+      body: tickets.map(t => t.toObject()),
     })
   } catch (error: any) {
     return sendTsRestError(res, 400, error.message || 'Could not complete reservation')

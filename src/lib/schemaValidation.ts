@@ -103,10 +103,23 @@ export const rejectEventSchema = z.object({
   reason: z.string().trim().min(3, 'A rejection reason is required'),
 })
 
+export const rsvpSchema = z.object({
+  guests: z.number().int().min(1).max(4).optional(),
+})
+
 export const updateProfileSchema = z
   .object({
     fullname: z.string().trim().min(2).optional(),
     phone: z.string().trim().min(7).optional(),
+    city: z.string().trim().min(1).optional(),
+    notificationPreferences: z
+      .object({
+        eventReminders: z.boolean().optional(),
+        weeklyPicks: z.boolean().optional(),
+        organizerUpdates: z.boolean().optional(),
+      })
+      .partial()
+      .optional(),
     currentPassword: z.string().optional(),
     newPassword: z.string().min(8).optional(),
   })

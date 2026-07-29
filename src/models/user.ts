@@ -12,12 +12,22 @@ export interface IOrganizerProfile {
   paystackRecipientCode?: string
 }
 
+export interface INotificationPreferences {
+  eventReminders: boolean
+  weeklyPicks: boolean
+  organizerUpdates: boolean
+}
+
 export interface IUser extends Document {
   _id: mongoose.Types.ObjectId
   fullname: string
   email: string
   password: string
   phone: string
+  city?: string
+  avatarUrl?: string
+  avatarPublicId?: string
+  notificationPreferences: INotificationPreferences
   role: 'attendee' | 'organizer' | 'admin'
   isVerified: boolean
   isSuspended: boolean
@@ -73,6 +83,22 @@ const UserSchema = new Schema<IUser>(
       type: String,
       required: true,
       trim: true,
+    },
+    city: {
+      type: String,
+      trim: true,
+    },
+    avatarUrl: {
+      type: String,
+    },
+    avatarPublicId: {
+      type: String,
+      select: false, // internal Cloudinary bookkeeping, never needs to leave the server
+    },
+    notificationPreferences: {
+      eventReminders: { type: Boolean, default: true },
+      weeklyPicks: { type: Boolean, default: true },
+      organizerUpdates: { type: Boolean, default: false },
     },
     role: {
       type: String,

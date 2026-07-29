@@ -23,61 +23,79 @@ export class TicketService {
   }
 
   /**
-   * Reserve a place at a free event. Capacity check + reservation increment
-   * happen as a single atomic update so two concurrent requests can't both
-   * squeeze past a nearly-full event (classic race condition).
+   * Reserve 1-4 places at a free event in one action (the design calls this
+   * "guests" — each guest still gets their own individual ticket/QR, this
+   * just lets someone claim several in one request instead of repeating the
+   * whole flow). Runs in a transaction: the capacity check + reservation
+   * increment + every ticket document must all succeed together, same
+   * reasoning as issueTicketsForPaidOrder below — partial success would
+   * mean tickets that don't actually correspond to a held reservation.
    */
-  static async rsvpToFreeEvent(eventId: string, user: IUser): Promise<ITicket> {
-    const updatedEvent = await Event.findOneAndUpdate(
-      {
-        _id: eventId,
-        type: 'free',
-        status: 'approved',
-        $or: [
-          { capacity: { $exists: false } },
-          { capacity: null },
-          { $expr: { $lt: ['$reservationsCount', '$capacity'] } },
-        ],
-      },
-      { $inc: { reservationsCount: 1 } },
-      { new: true }
-    )
-
-    if (!updatedEvent) {
-      // Either the event doesn't exist / isn't a live free event, or it's full.
-      const existing = await Event.findById(eventId).lean()
-      if (!existing || existing.type !== 'free' || existing.status !== 'approved') {
-        throw new Error('This event is not open for reservations')
-      }
-      throw new Error('This event is fully booked')
-    }
+  static async rsvpToFreeEvent(eventId: string, user: IUser, guests = 1): Promise<ITicket[]> {
+    const session = await mongoose.startSession()
+    let issuedTickets: ITicket[] = []
+    let eventSnapshot: { _id: mongoose.Types.ObjectId; title: string; startDate: Date; venue: { name: string; city: string } } | null = null
 
     try {
-      const ticket = await Ticket.create({
-        event: updatedEvent._id,
-        attendee: user._id,
-        code: this.generateTicketCode(),
-        type: 'free',
-        price: 0,
-        attendeeName: user.fullname,
-        attendeeEmail: user.email,
-        status: 'valid',
-      })
+      await session.withTransaction(async () => {
+        const updatedEvent = await Event.findOneAndUpdate(
+          {
+            _id: eventId,
+            type: 'free',
+            status: 'approved',
+            $or: [
+              { capacity: { $exists: false } },
+              { capacity: null },
+              { $expr: { $lte: [{ $add: ['$reservationsCount', guests] }, '$capacity'] } },
+            ],
+          },
+          { $inc: { reservationsCount: guests } },
+          { new: true, session }
+        )
 
+        if (!updatedEvent) {
+          const existing = await Event.findById(eventId).session(session).lean()
+          if (!existing || existing.type !== 'free' || existing.status !== 'approved') {
+            throw new Error('This event is not open for reservations')
+          }
+          const remaining = (existing.capacity ?? Infinity) - existing.reservationsCount
+          throw new Error(
+            remaining <= 0 ? 'This event is fully booked' : `Only ${remaining} spot(s) left — lower your guest count`
+          )
+        }
+
+        eventSnapshot = updatedEvent
+
+        issuedTickets = await Ticket.create(
+          Array.from({ length: guests }, () => ({
+            event: updatedEvent._id,
+            attendee: user._id,
+            code: this.generateTicketCode(),
+            type: 'free' as const,
+            price: 0,
+            attendeeName: user.fullname,
+            attendeeEmail: user.email,
+            status: 'valid' as const,
+          })),
+          { session }
+        )
+      })
+    } finally {
+      await session.endSession()
+    }
+
+    if (eventSnapshot) {
+      const evt = eventSnapshot as { title: string; startDate: Date; venue: { name: string; city: string } }
       EmailService.sendTicketConfirmationEmail({
         user,
-        eventTitle: updatedEvent.title,
-        eventDateLabel: formatEventDateLabel(updatedEvent.startDate),
-        venueLabel: formatVenueLabel(updatedEvent.venue),
-        ticketCodes: [ticket.code],
-      }).catch(error => logger.error({ err: error }, `Ticket confirmation email failed for ticket ${ticket._id}`))
-
-      return ticket
-    } catch (error) {
-      // Compensate the reservation count if ticket creation failed for any reason.
-      await Event.updateOne({ _id: updatedEvent._id }, { $inc: { reservationsCount: -1 } })
-      throw error
+        eventTitle: evt.title,
+        eventDateLabel: formatEventDateLabel(evt.startDate),
+        venueLabel: formatVenueLabel(evt.venue),
+        ticketCodes: issuedTickets.map(t => t.code),
+      }).catch(error => logger.error({ err: error }, `Ticket confirmation email failed for RSVP on event ${eventId}`))
     }
+
+    return issuedTickets
   }
 
   /**

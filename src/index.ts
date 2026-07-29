@@ -36,8 +36,6 @@ declare global {
   }
 }
 
-// just added this to avoid the error "Cannot redeclare block-scoped variable 'Request'." in TypeScript
-
 // Extend express-session SessionData interface
 declare module "express-session" {
   interface SessionData {
@@ -50,11 +48,15 @@ const app = express();
 
 setupGlobalErrorHandlers();
 
-// lean path - cron doesn't need CORS, sesions or body
+// lean path - cron doesn't need CORS, sessions or body
 app.use("/api", emailRoutes);
 
-// CORS configuration
-const normalizeOrigin = (url: string) => url.replace(/\/$/, "");
+// ---- CORS configuration ----
+
+// Strip trailing slashes so env values like
+// "https://example.com/" still match the Origin header,
+// which browsers always send WITHOUT a trailing slash.
+const normalizeOrigin = (url: string): string => url.replace(/\/+$/, "");
 
 const allowedOrigins = [
   env.CLIENT_URL,
@@ -67,8 +69,10 @@ const allowedOrigins = [
 ]
   .filter(Boolean)
   .map(normalizeOrigin);
+
 const corsOptions: cors.CorsOptions = {
   origin: (origin, callback) => {
+    // Allow requests without an Origin header (Postman, mobile apps, server-to-server)
     if (!origin) {
       return callback(null, true);
     }
@@ -97,7 +101,8 @@ const corsOptions: cors.CorsOptions = {
   optionsSuccessStatus: 200,
 };
 
-app.use(createExpressLogger()); //pino http logger middleware for request logging
+app.use(createExpressLogger()); // pino http logger middleware for request logging
+
 // Use session middleware before defining routes
 app.use(createSessionMiddleware());
 
@@ -144,25 +149,15 @@ app.use("/health", async (req: Request, res: Response, next: NextFunction) => {
 });
 
 app.use("/api/v1/auth", authRoutes);
-
 app.use("/api/v1/tickets", ticketRoutes);
-
 app.use("/api/v1/payments", paymentRoutes);
-
 app.use("/api/v1/events", eventRoutes);
-
 app.use("/api/v1/categories", categoryRoutes);
-
 app.use("/api/v1/organizers", organizerRoutes);
-
 app.use("/api/v1/admin", adminRoutes);
-
 app.use("/api/v1/users", userRoutes);
-
 app.use("/api/v1/promotions", promotionRoutes);
-
 app.use("/api", cronRoutes);
-
 app.use("/api/v1/uploads", uploadRoutes);
 
 // Handle 404
@@ -171,15 +166,17 @@ app.use(notFoundRoutes);
 app.use(appErrorHandler);
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 4000;
+
 const startServer = async (): Promise<void> => {
   let server: any;
   try {
     await connectDB();
     server = app.listen(PORT, "0.0.0.0", () => {
       logger.info(`Server running in ${env.NODE_ENV} mode on port ${PORT}`);
-      logger.info(`http://localhost: ${PORT}`);
+      logger.info(`http://localhost:${PORT}`);
     });
-    //HANDLE unhandled promise rejections
+
+    // Handle unhandled promise rejections
     process.on("unhandledRejection", (reason: unknown) => {
       console.error(`UNHANDLED REJECTION! Shutting down...`);
       const error =
@@ -188,17 +185,15 @@ const startServer = async (): Promise<void> => {
           : String(reason);
       logger.error({ reason: error }, "Unhandled rejection");
 
-      //close server gracefully
       server.close(() => {
         logger.info(`Process terminated due to unhandled rejection`);
         logger.info("Server shutdown complete");
       });
     });
-    //handle termination signals
+
     process.on("SIGTERM", gracefulShutDown);
     process.on("SIGINT", gracefulShutDown);
 
-    // Handle any other errors
     server.on("error", (error: NodeJS.ErrnoException) => {
       if (error.syscall !== "listen") throw error;
 
@@ -216,7 +211,7 @@ const startServer = async (): Promise<void> => {
   } catch (error: unknown) {
     const errorMessage =
       error instanceof Error ? error.message : "Unknown error";
-    logError(` Failed to start server: ${errorMessage}`);
+    logError(`Failed to start server: ${errorMessage}`);
     process.exit(1);
   }
 };

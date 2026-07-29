@@ -41,6 +41,27 @@ export class CloudinaryService {
     })
   }
 
+  /** Square, face-centered crop — separate from uploadImage's 16:9 limit-crop, which is wrong for a circular avatar. */
+  static uploadAvatar(buffer: Buffer): Promise<UploadedImage> {
+    return new Promise((resolve, reject) => {
+      const stream = cloudinary.uploader.upload_stream(
+        {
+          folder: 'eventra/avatars',
+          resource_type: 'image',
+          transformation: [{ width: 400, height: 400, crop: 'fill', gravity: 'face' }],
+        },
+        (error, result) => {
+          if (error || !result) {
+            logger.error({ err: error }, 'Cloudinary avatar upload failed')
+            return reject(new Error(error?.message || 'Image upload failed'))
+          }
+          resolve({ url: result.secure_url, publicId: result.public_id })
+        }
+      )
+      stream.end(buffer)
+    })
+  }
+
   static async deleteImage(publicId: string): Promise<void> {
     try {
       await cloudinary.uploader.destroy(publicId)

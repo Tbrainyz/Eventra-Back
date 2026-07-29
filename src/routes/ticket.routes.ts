@@ -9,13 +9,13 @@ import {
   rsvpFreeEvent,
 } from '../controllers/ticket.controller.js'
 import { verifySession } from '../middlewares/auth.middleware.js'
-import { checkoutSchema, refundRequestSchema } from '../lib/schemaValidation.js'
+import { checkoutSchema, refundRequestSchema, rsvpSchema } from '../lib/schemaValidation.js'
 import { validateFormData } from '../middlewares/schema.middleware.js'
 import { customRateLimiter } from '../middlewares/rateLimit.middleware.js'
 
 const router = Router()
 
-router.post('/rsvp/:eventId', verifySession, customRateLimiter(10), rsvpFreeEvent)
+router.post('/rsvp/:eventId', verifySession, customRateLimiter(10), validateFormData(rsvpSchema), rsvpFreeEvent)
 
 router.post('/checkout/:eventId', verifySession, customRateLimiter(10), validateFormData(checkoutSchema), initializeCheckout)
 

@@ -4,11 +4,50 @@ import tryCatchWrapper from '../lib/tryCatchWrapper.js'
 import { sanitizeUser } from '../lib/utils.js'
 import Order from '../models/order.js'
 import User from '../models/user.js'
+import { CloudinaryService } from '../services/cloudinary.service.js'
+
+export const uploadAvatar = tryCatchWrapper(async (req: Request, res: Response) => {
+  if (!req.file) {
+    return sendTsRestError(res, 400, 'No image file provided (expected field name "image")')
+  }
+
+  const user = await User.findById(req.session.userId).select('+avatarPublicId')
+  if (!user) {
+    return sendTsRestError(res, 404, 'User not found')
+  }
+
+  const previousPublicId = user.avatarPublicId
+
+  let uploaded
+  try {
+    uploaded = await CloudinaryService.uploadAvatar(req.file.buffer)
+  } catch (error: any) {
+    return sendTsRestError(res, 502, error.message || 'Avatar upload failed')
+  }
+
+  user.avatarUrl = uploaded.url
+  user.avatarPublicId = uploaded.publicId
+  await user.save()
+
+  // Best-effort — the new avatar is already saved either way, so a failed
+  // cleanup here shouldn't turn into a failed request for the user.
+  if (previousPublicId) {
+    CloudinaryService.deleteImage(previousPublicId)
+  }
+
+  return sendTsRestSuccess(res, 200, {
+    success: true,
+    message: 'Avatar updated',
+    body: sanitizeUser(user.toObject()),
+  })
+})
 
 export const updateProfile = tryCatchWrapper(async (req: Request, res: Response) => {
-  const { fullname, phone, currentPassword, newPassword } = req.body as {
+  const { fullname, phone, city, notificationPreferences, currentPassword, newPassword } = req.body as {
     fullname?: string
     phone?: string
+    city?: string
+    notificationPreferences?: Partial<{ eventReminders: boolean; weeklyPicks: boolean; organizerUpdates: boolean }>
     currentPassword?: string
     newPassword?: string
   }
@@ -20,6 +59,12 @@ export const updateProfile = tryCatchWrapper(async (req: Request, res: Response)
 
   if (fullname) user.fullname = fullname
   if (phone) user.phone = phone
+  if (city) user.city = city
+  // Partial merge, not overwrite — a toggle for one preference shouldn't
+  // reset the other two to their schema defaults.
+  if (notificationPreferences) {
+    user.notificationPreferences = { ...user.notificationPreferences, ...notificationPreferences }
+  }
 
   if (newPassword) {
     if (!currentPassword) {
