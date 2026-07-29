@@ -27,10 +27,6 @@ import {
   setupGlobalErrorHandlers,
 } from './middlewares/error.middleware.js'
 
-
-
-
-
 declare global {
   namespace Express {
     interface Request {
@@ -39,8 +35,6 @@ declare global {
     }
   }
 }
-
-// just added this to avoid the error "Cannot redeclare block-scoped variable 'Request'." in TypeScript
 
 // Extend express-session SessionData interface
 declare module 'express-session' {
@@ -54,31 +48,50 @@ const app = express()
 
 setupGlobalErrorHandlers()
 
-// lean path - cron doesn't need CORS, sesions or body
+// lean path - cron doesn't need CORS, sessions or body
 app.use('/api', emailRoutes)
 
-// CORS configuration
-const allowedOrigins = [env.CLIENT_URL]
-if (env.NODE_ENV === 'production' && env.CLIENT_URL) {
-  allowedOrigins.push(env.CLIENT_URL)
-}
+// ---- CORS configuration ----
+
+// Strip trailing slashes so env values like "https://example.com/"
+// still match the Origin header, which browsers always send WITHOUT
+// a trailing slash.
+const normalizeOrigin = (url: string): string => url.replace(/\/+$/, '')
+
+const allowedOrigins = [
+  env.CLIENT_URL,
+  'http://localhost:4000',
+  'http://localhost:4001',
+  'http://localhost:4002',
+  'http://127.0.0.1:4000',
+  'http://127.0.0.1:4001',
+  'http://127.0.0.1:4002',
+]
+  .filter(Boolean)
+  .map(normalizeOrigin)
 
 const corsOptions: cors.CorsOptions = {
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true)
-    } else {
-      callback(new Error('Not allowed by CORS'))
+    // Allow requests without an Origin header (Postman, mobile apps, server-to-server)
+    if (!origin) {
+      return callback(null, true)
     }
+
+    if (allowedOrigins.includes(normalizeOrigin(origin))) {
+      return callback(null, true)
+    }
+
+    console.error(`❌ CORS blocked origin: ${origin}`)
+    return callback(new Error(`Origin ${origin} is not allowed by CORS`))
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-  optionsSuccessStatus: 200,
-  allowedHeaders: ['Content-Type', 'Authorization', 'Access-Control-Allow-Origin', 'Access-Control-Allow-Credentials'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
   exposedHeaders: ['Content-Range', 'X-Content-Range', 'x-refresh-token', 'set-cookie'],
+  optionsSuccessStatus: 200,
 }
 
-app.use(createExpressLogger())//pino http logger middleware for request logging
+app.use(createExpressLogger()) // pino http logger middleware for request logging
 // Use session middleware before defining routes
 app.use(createSessionMiddleware())
 
@@ -125,66 +138,47 @@ app.use('/health', async (req: Request, res: Response, next: NextFunction) => {
 })
 
 app.use('/api/v1/auth', authRoutes)
-
 app.use('/api/v1/tickets', ticketRoutes)
-
 app.use('/api/v1/payments', paymentRoutes)
-
 app.use('/api/v1/events', eventRoutes)
-
 app.use('/api/v1/categories', categoryRoutes)
-
 app.use('/api/v1/organizers', organizerRoutes)
-
 app.use('/api/v1/admin', adminRoutes)
-
 app.use('/api/v1/users', userRoutes)
-
 app.use('/api/v1/promotions', promotionRoutes)
-
 app.use('/api', cronRoutes)
-
 app.use('/api/v1/uploads', uploadRoutes)
-
-
-
-
 
 // Handle 404
 app.use(notFoundRoutes)
 // Global error handler
 app.use(appErrorHandler)
 
-
-
-
-
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 4000
+
 const startServer = async (): Promise<void> => {
   let server: any
   try {
     await connectDB()
     server = app.listen(PORT, '0.0.0.0', () => {
       logger.info(`Server running in ${env.NODE_ENV} mode on port ${PORT}`)
-      logger.info(`http://localhost: ${PORT}`)
+      logger.info(`http://localhost:${PORT}`)
     })
-    //HANDLE unhandled promise rejections
+
     process.on('unhandledRejection', (reason: unknown) => {
       console.error(`UNHANDLED REJECTION! Shutting down...`)
       const error = reason instanceof Error ? `${reason.name}: ${reason.message}` : String(reason)
       logger.error({ reason: error }, 'Unhandled rejection')
 
-      //close server gracefully
       server.close(() => {
         logger.info(`Process terminated due to unhandled rejection`)
         logger.info('Server shutdown complete')
       })
     })
-    //handle termination signals
+
     process.on('SIGTERM', gracefulShutDown)
     process.on('SIGINT', gracefulShutDown)
 
-    // Handle any other errors
     server.on('error', (error: NodeJS.ErrnoException) => {
       if (error.syscall !== 'listen') throw error
 
@@ -201,7 +195,7 @@ const startServer = async (): Promise<void> => {
     })
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-    logError(` Failed to start server: ${errorMessage}`)
+    logError(`Failed to start server: ${errorMessage}`)
     process.exit(1)
   }
 }
