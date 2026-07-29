@@ -10,7 +10,7 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    "types": ["node", "bcrypt"],
+    "types": ["node", "bcryptjs"],
     "lib": ["ES2022"],
   },
   "include": ["api/**/*.ts", "src/**/*.ts", "src/**/*.json", "scripts/**/*.ts"],

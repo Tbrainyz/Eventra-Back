@@ -1,4 +1,4 @@
-import bcrypt from 'bcrypt'
+import bcrypt from 'bcryptjs'
 import mongoose, { Document, Schema } from 'mongoose'
 
 export interface IOrganizerProfile {
