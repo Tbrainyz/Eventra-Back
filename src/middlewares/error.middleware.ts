@@ -54,8 +54,17 @@ export const setupGlobalErrorHandlers = (): void => {
     // Handle uncaught exceptions
     process.on('uncaughtException', error => {
         logger.fatal({ err: error }, 'Uncaught Exception')
-        // Give logger time to flush before exit
-        setTimeout(() => process.exit(1), 1000)
+
+        // On Vercel, process.exit() doesn't give you a clean restart — it can
+        // kill the function mid-invocation (including unrelated concurrent
+        // requests sharing a warm container), which surfaces to users as
+        // FUNCTION_INVOCATION_FAILED. Vercel already isolates and recycles
+        // function instances on its own; logging and letting the request
+        // fail normally is safer there than self-terminating the process.
+        if (!process.env.VERCEL) {
+            // Give logger time to flush before exit
+            setTimeout(() => process.exit(1), 1000)
+        }
     })
 
     // Handle unhandled promise rejections

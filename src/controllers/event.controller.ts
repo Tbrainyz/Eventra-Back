@@ -69,6 +69,35 @@ export const updateEvent = tryCatchWrapper(async (req: Request, res: Response) =
   })
 })
 
+/**
+ * Separate from updateEvent on purpose — that endpoint is locked to
+ * draft/rejected events because changing venue, date, price, or capacity
+ * on a live event is exactly the kind of thing that should require
+ * re-approval. Lineup isn't that: "DJ X just confirmed" is routine on an
+ * event that's already approved and selling tickets, so this only blocks
+ * cancelled events, not approved/pending/postponed ones.
+ */
+export const updateEventLineup = tryCatchWrapper(async (req: Request, res: Response) => {
+  const { id } = req.params
+  const event = await Event.findOne({ _id: id, organizer: req.session.userId })
+
+  if (!event) {
+    return sendTsRestError(res, 404, 'Event not found')
+  }
+  if (event.status === 'cancelled') {
+    return sendTsRestError(res, 400, "Can't edit the lineup of a cancelled event")
+  }
+
+  event.lineup = req.body.lineup
+  await event.save()
+
+  return sendTsRestSuccess(res, 200, {
+    success: true,
+    message: 'Lineup updated',
+    body: event.toObject(),
+  })
+})
+
 export const submitEventForApproval = tryCatchWrapper(async (req: Request, res: Response) => {
   const { id } = req.params
   const event = await Event.findOne({ _id: id, organizer: req.session.userId })
@@ -239,6 +268,7 @@ export const getEventDashboard = tryCatchWrapper(async (req: Request, res: Respo
       status: event.status,
       type: event.type,
       startDate: event.startDate,
+      lineup: event.lineup,
     },
     reservationsCount: event.reservationsCount,
     capacity: event.capacity ?? null,

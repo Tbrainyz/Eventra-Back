@@ -12,6 +12,13 @@ export interface IRefundPolicy {
   daysBefore?: number
 }
 
+export interface IEventLineupMember {
+  _id: mongoose.Types.ObjectId
+  name: string
+  role: string
+  imageUrl?: string
+}
+
 export interface IEventPromotion {
   package: string
   status: 'pending' | 'approved' | 'rejected'
@@ -35,6 +42,10 @@ export interface IEvent extends Document {
   endDate?: Date
   capacity?: number
   refundPolicy?: IRefundPolicy
+  // Artists/speakers/influencers billed for the event — a selling point on
+  // the public event page, entirely organizer-managed. Order in the array
+  // is display order (headliners first).
+  lineup: IEventLineupMember[]
   status: 'draft' | 'pending_approval' | 'approved' | 'rejected' | 'cancelled' | 'postponed'
   rejectionReason?: string
   isPromoted: boolean
@@ -87,6 +98,12 @@ const EventPromotionSchema = new Schema<IEventPromotion>(
   },
   { _id: false }
 )
+
+const LineupMemberSchema = new Schema<IEventLineupMember>({
+  name: { type: String, required: true, trim: true },
+  role: { type: String, required: true, trim: true },
+  imageUrl: { type: String, trim: true },
+})
 
 const EventSchema = new Schema<IEvent>(
   {
@@ -142,6 +159,10 @@ const EventSchema = new Schema<IEvent>(
     },
     refundPolicy: {
       type: RefundPolicySchema,
+    },
+    lineup: {
+      type: [LineupMemberSchema],
+      default: [],
     },
     status: {
       type: String,

@@ -58,6 +58,16 @@ const venueSchema = z.object({
   state: z.string().trim().optional(),
 })
 
+export const lineupMemberSchema = z.object({
+  name: z.string().trim().min(1, 'name is required'),
+  role: z.string().trim().min(1, 'role is required'),
+  imageUrl: z.string().trim().url().optional(),
+})
+
+export const updateEventLineupSchema = z.object({
+  lineup: z.array(lineupMemberSchema).max(30, 'Lineup can have at most 30 entries'),
+})
+
 export const createEventSchema = z.object({
   title: z.string().trim().min(3, 'Title must be at least 3 characters'),
   description: z.string().trim().min(10, 'Description must be at least 10 characters'),
@@ -74,6 +84,10 @@ export const createEventSchema = z.object({
       daysBefore: z.number().int().min(0).optional(),
     })
     .optional(),
+  // Whole-array replace on every save — organizer submits the current full
+  // lineup each time rather than individual add/remove diffs. Simpler
+  // contract, and Mongo assigns fresh _ids to any new entries regardless.
+  lineup: z.array(lineupMemberSchema).max(30, 'Lineup can have at most 30 entries').optional(),
 })
 
 export const updateEventSchema = createEventSchema.partial()

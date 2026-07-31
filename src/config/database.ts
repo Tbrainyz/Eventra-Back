@@ -33,7 +33,8 @@ export const connectDB = async (): Promise<void> => {
 
   if (dbConnection.retryCount >= dbConnection.maxRetries) {
     logger.error('X Max MongoDb connection retries reached')
-    process.exit(1)
+    if (!process.env.VERCEL) process.exit(1)
+    return
   }
 
   try {
@@ -71,7 +72,7 @@ export const connectDB = async (): Promise<void> => {
       setTimeout(connectDB, 5000)
     } else {
       logger.error('Max retries reached. Exiting...')
-      process.exit(1)
+      if (!process.env.VERCEL) process.exit(1)
     }
   }
 }
@@ -102,5 +103,10 @@ process.on('uncaughtException', (error: Error) => {
     },
     `UNCAUGHT EXCEPTIONS! Shutting down`
   )
-  gracefulShutDown().finally(() => process.exit(1))
+  // See the matching guard in middlewares/error.middleware.ts — process.exit()
+  // inside a Vercel function can kill the invocation (and warm-container
+  // neighbors) outright instead of just failing the one request.
+  if (!process.env.VERCEL) {
+    gracefulShutDown().finally(() => process.exit(1))
+  }
 })

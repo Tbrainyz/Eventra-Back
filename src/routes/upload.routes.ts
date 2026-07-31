@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { uploadEventCoverImage } from '../controllers/upload.controller.js'
+import { uploadEventCoverImage, uploadLineupPhoto } from '../controllers/upload.controller.js'
 import { requireRole, verifySession } from '../middlewares/auth.middleware.js'
 import { imageUpload } from '../middlewares/upload.middleware.js'
 import { customRateLimiter } from '../middlewares/rateLimit.middleware.js'
@@ -13,6 +13,15 @@ router.post(
   customRateLimiter(10),
   imageUpload.single('image'),
   uploadEventCoverImage
+)
+
+router.post(
+  '/lineup-photo',
+  verifySession,
+  requireRole('organizer'),
+  customRateLimiter(10),
+  imageUpload.single('image'),
+  uploadLineupPhoto
 )
 
 export default router

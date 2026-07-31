@@ -10,6 +10,7 @@ import {
   postponeEvent,
   submitEventForApproval,
   updateEvent,
+  updateEventLineup,
 } from '../controllers/event.controller.js'
 import { checkInTicket, listEventAttendees } from '../controllers/ticket.controller.js'
 import { requestPromotion } from '../controllers/promotion.controller.js'
@@ -20,6 +21,7 @@ import {
   createEventSchema,
   postponeEventSchema,
   requestPromotionSchema,
+  updateEventLineupSchema,
   updateEventSchema,
 } from '../lib/schemaValidation.js'
 import ticketTypeRoutes from './ticketType.routes.js'
@@ -34,6 +36,7 @@ router.get('/mine', verifySession, requireRole('organizer'), listMyEvents)
 
 router.post('/', verifySession, requireRole('organizer'), validateFormData(createEventSchema), createEvent)
 router.patch('/:id', verifySession, requireRole('organizer'), validateFormData(updateEventSchema), updateEvent)
+router.patch('/:id/lineup', verifySession, requireRole('organizer'), validateFormData(updateEventLineupSchema), updateEventLineup)
 router.post('/:id/submit', verifySession, requireRole('organizer'), submitEventForApproval)
 router.delete('/:id', verifySession, requireRole('organizer'), deleteEvent)
 router.get('/:id/dashboard', verifySession, requireRole('organizer'), getEventDashboard)
