@@ -1,9 +1,9 @@
 import { Router } from 'express'
-import { forgotPassword, login, logout, me, register, resendOtp, resetPassword, verifyEmail } from '../controllers/auth.controller.js'
+import { forgotPassword, googleAuth, login, logout, me, register, resendOtp, resetPassword, verifyEmail } from '../controllers/auth.controller.js'
 import { verifySession } from '../middlewares/auth.middleware.js'
 import { customRateLimiter, strictLimiter } from '../middlewares/rateLimit.middleware.js'
 import { validateFormData } from '../middlewares/schema.middleware.js'
-import { forgotPasswordSchema, loginSchema, registerSchema, resendOtpSchema, resetPasswordSchema, verifyEmailSchema } from '../lib/schemaValidation.js'
+import { forgotPasswordSchema, googleAuthSchema, loginSchema, registerSchema, resendOtpSchema, resetPasswordSchema, verifyEmailSchema } from '../lib/schemaValidation.js'
 
 const router = Router()
 
@@ -14,6 +14,8 @@ router.post('/verify-email', customRateLimiter(10), validateFormData(verifyEmail
 router.post('/resend-otp', strictLimiter, validateFormData(resendOtpSchema), resendOtp)
 
 router.post('/login', strictLimiter, validateFormData(loginSchema), login)
+
+router.post('/google', strictLimiter, validateFormData(googleAuthSchema), googleAuth)
 
 router.post('/forgot-password', strictLimiter, validateFormData(forgotPasswordSchema), forgotPassword)
 

@@ -26,6 +26,7 @@ const ENV_VARS: EnvSpec[] = [
   { key: 'CLOUDINARY_CLOUD_NAME', required: true },
   { key: 'CLOUDINARY_API_KEY', required: true },
   { key: 'CLOUDINARY_API_SECRET', required: true },
+  { key: 'GOOGLE_CLIENT_ID', required: false },
 ]
 
 interface Env {
