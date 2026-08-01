@@ -54,10 +54,21 @@ export const checkoutSchema = z.object({
 
 export const organizerProfileSchema = z.object({
   businessName: z.string().trim().min(2).optional(),
+  category: z.string().trim().min(1).optional(),
+  city: z.string().trim().min(2).optional(),
+  contactPhone: z.string().trim().min(7).optional(),
+  publicEmail: z.string().trim().toLowerCase().email().optional(),
+  bio: z.string().trim().max(280).optional(),
   bankName: z.string().trim().min(2).optional(),
   bankCode: z.string().trim().min(2).optional(),
   accountNumber: z.string().trim().min(10).max(10).optional(),
   accountName: z.string().trim().min(2).optional(),
+  agreedToTerms: z.boolean().optional(),
+})
+
+export const resolveBankAccountSchema = z.object({
+  accountNumber: z.string().trim().min(10).max(10),
+  bankCode: z.string().trim().min(2),
 })
 
 const venueSchema = z.object({

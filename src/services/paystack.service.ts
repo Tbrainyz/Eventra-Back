@@ -177,6 +177,43 @@ export class PaystackService {
       throw new Error(message)
     }
   }
+
+  /**
+   * Confirms who actually owns a bank account before we save it — this is
+   * the "we use Paystack to confirm your account name" step in the bank
+   * onboarding screen. Never trust a client-typed account name.
+   */
+  static async resolveAccount(params: { accountNumber: string; bankCode: string }): Promise<{ accountName: string }> {
+    try {
+      const { data } = await this.getClient().get('/bank/resolve', {
+        params: { account_number: params.accountNumber, bank_code: params.bankCode },
+      })
+
+      return { accountName: data.data.account_name }
+    } catch (error: any) {
+      const message = error.response?.data?.message || error.message || 'Could not verify this account number'
+      logger.error({ err: error.response?.data }, `Paystack account resolve failed: ${message}`)
+      throw new Error(message)
+    }
+  }
+
+  /**
+   * Nigerian banks for the onboarding "Select bank" dropdown, each with the
+   * bank_code resolveAccount/createTransferRecipient need. Paystack's own
+   * list barely changes, so callers should cache this (see
+   * organizer.controller.ts) rather than hitting Paystack on every page load.
+   */
+  static async listBanks(): Promise<{ name: string; code: string }[]> {
+    try {
+      const { data } = await this.getClient().get('/bank', { params: { country: 'nigeria', currency: 'NGN' } })
+
+      return data.data.map((bank: { name: string; code: string }) => ({ name: bank.name, code: bank.code }))
+    } catch (error: any) {
+      const message = error.response?.data?.message || error.message || 'Failed to load bank list'
+      logger.error({ err: error.response?.data }, `Paystack bank list failed: ${message}`)
+      throw new Error(message)
+    }
+  }
 }
 
 export const paystackService = new PaystackService()
