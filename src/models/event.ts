@@ -228,7 +228,7 @@ EventSchema.index({ category: 1, startDate: 1 })
 EventSchema.index({ 'venue.city': 1 })
 EventSchema.index({ isPromoted: -1, startDate: 1 })
 EventSchema.index({ status: 1, minPrice: 1 })
-EventSchema.index({ title: 'text', description: 'text' })
+EventSchema.index({ title: 'text', description: 'text', 'venue.name': 'text', 'venue.address': 'text', 'venue.city': 'text' })
 
 const Event = mongoose.models.Event || mongoose.model<IEvent>('Event', EventSchema, 'events')
 
