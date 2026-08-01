@@ -9,8 +9,18 @@ import { GoogleAuthService } from '../services/google-auth.service.js'
 
 const OTP_TTL_MS = 15 * 60 * 1000 // 15 minutes, matches the email copy
 
+// Organizer auth lives under its own branded route tree (/organizer/auth/*)
+// rather than the attendee one (/auth/*) — same account system, different
+// shell (see routes/organizer/auth on the client). The verification email
+// needs to land the person back on whichever shell they signed up through.
+function verifyEmailLink(email: string, role: 'attendee' | 'organizer') {
+  const path = role === 'organizer' ? '/organizer/auth/verify-email' : '/auth/verify-email'
+  return `${env.CLIENT_URL}${path}?email=${encodeURIComponent(email)}`
+}
+
 export const register = tryCatchWrapper(async (req: Request, res: Response) => {
   const { fullname, email, password, phone, role } = req.body
+  const resolvedRole = role === 'organizer' ? 'organizer' : 'attendee'
 
   const existingUser = await User.findOne({ email }).lean()
   if (existingUser) {
@@ -24,7 +34,7 @@ export const register = tryCatchWrapper(async (req: Request, res: Response) => {
     email,
     password,
     phone,
-    role: role === 'organizer' ? 'organizer' : 'attendee',
+    role: resolvedRole,
     emailVerificationOTP: otp,
     emailVerificationOTPExpiry: new Date(Date.now() + OTP_TTL_MS),
   })
@@ -32,7 +42,7 @@ export const register = tryCatchWrapper(async (req: Request, res: Response) => {
   await EmailService.sendVerifyAccountEmail({
     user,
     otp,
-    link: `${env.CLIENT_URL}/verify-email?email=${encodeURIComponent(email)}`,
+    link: verifyEmailLink(email, resolvedRole),
   })
 
   return sendTsRestSuccess(res, 201, {
@@ -101,7 +111,7 @@ export const resendOtp = tryCatchWrapper(async (req: Request, res: Response) => 
   await EmailService.sendVerifyAccountEmail({
     user,
     otp,
-    link: `${env.CLIENT_URL}/verify-email?email=${encodeURIComponent(email)}`,
+    link: verifyEmailLink(email, user.role === 'organizer' ? 'organizer' : 'attendee'),
   })
 
   return sendTsRestSuccess<undefined>(res, 200, {
@@ -111,7 +121,7 @@ export const resendOtp = tryCatchWrapper(async (req: Request, res: Response) => 
 })
 
 export const googleAuth = tryCatchWrapper(async (req: Request, res: Response) => {
-  const { accessToken } = req.body
+  const { accessToken, role } = req.body
 
   let profile
   try {
@@ -144,7 +154,12 @@ export const googleAuth = tryCatchWrapper(async (req: Request, res: Response) =>
       email: profile.email,
       googleId: profile.sub,
       avatarUrl: profile.picture,
-      role: 'attendee',
+      // Only matters for a brand-new account — if this email already
+      // exists (linked above) we keep whatever role it already has.
+      // "Sign up with Google" on the organizer register page sends
+      // role: 'organizer' here so it doesn't silently create an
+      // attendee account instead.
+      role: role === 'organizer' ? 'organizer' : 'attendee',
       // Google already verified this email address — our own OTP flow
       // would be redundant friction, not extra security.
       isVerified: true,

@@ -94,7 +94,10 @@ const UserSchema = new Schema<IUser>(
     phone: {
       type: String,
       required: function (this: IUser) {
-        return !this.googleId
+        // Google sign-ups never collect a phone number, and neither does
+        // the organizer registration form — only a manual attendee
+        // sign-up needs one.
+        return !this.googleId && this.role !== 'organizer'
       },
       trim: true,
     },

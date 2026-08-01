@@ -4,7 +4,11 @@ export const registerSchema = z.object({
   fullname: z.string().trim().min(2, 'Fullname must be at least 2 characters'),
   email: z.string().trim().toLowerCase().email('Invalid email address'),
   password: z.string().min(8, 'Password must be at least 8 characters'),
-  phone: z.string().trim().min(7, 'Invalid phone number'),
+  // Optional here because the organizer sign-up form doesn't collect a
+  // phone number (see the Figma) — enforced as required for attendees at
+  // the client-side schema instead (lib/schema.ts's registerSchema),
+  // since that's a UX choice, not a data-integrity one.
+  phone: z.string().trim().min(7, 'Invalid phone number').optional(),
   role: z.enum(['attendee', 'organizer']).optional(),
 })
 
@@ -24,6 +28,7 @@ export const loginSchema = z.object({
 
 export const googleAuthSchema = z.object({
   accessToken: z.string().min(1, 'accessToken is required'),
+  role: z.enum(['attendee', 'organizer']).optional(),
 })
 
 export const forgotPasswordSchema = z.object({
