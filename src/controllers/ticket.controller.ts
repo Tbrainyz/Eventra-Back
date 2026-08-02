@@ -141,6 +141,13 @@ export const initializeCheckout = tryCatchWrapper(async (req: Request, res: Resp
  * An attendee cancels their own free-event reservation, releasing the place.
  * No payment is involved for free events, so this is a straight cancellation.
  */
+/**
+ * Cancelling a free reservation deletes the ticket outright rather than
+ * soft-marking it 'cancelled' — unlike a paid ticket (see requestRefund
+ * below), there's no payment or audit trail tied to a free RSVP that's
+ * worth preserving, and leaving a dead row around just meant it kept
+ * showing up in My Tickets forever with nothing useful to do with it.
+ */
 export const cancelReservation = tryCatchWrapper(async (req: Request, res: Response) => {
   const { ticketId } = req.params
 
@@ -152,8 +159,7 @@ export const cancelReservation = tryCatchWrapper(async (req: Request, res: Respo
     return sendTsRestError(res, 400, 'This reservation can no longer be cancelled')
   }
 
-  ticket.status = 'cancelled'
-  await ticket.save()
+  await ticket.deleteOne()
   await Event.updateOne({ _id: ticket.event }, { $inc: { reservationsCount: -1 } })
 
   return sendTsRestSuccess<undefined>(res, 200, {

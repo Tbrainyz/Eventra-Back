@@ -26,7 +26,7 @@ export class EmailService {
     const htmlBody = verifyAccountTemplate(user.fullname, otp, link)
     const result = await sendEmail({
       email: user.email,
-      subject: 'Verify your account - EventPulse',
+      subject: 'Verify your account - Eventra',
       message: htmlBody,
     })
     if (result.success) {
@@ -36,7 +36,7 @@ export class EmailService {
     // Queue for retry via cron job
     await EmailQueue.create({
       to: user.email,
-      subject: 'Verify your account - EventPulse',
+      subject: 'Verify your account - Eventra',
       html: htmlBody,
       priority: 'high',
       status: 'queued',
@@ -56,7 +56,7 @@ export class EmailService {
     const htmlBody = resetPasswordTemplate(user.fullname, otp)
     const result = await sendEmail({
       email: user.email,
-      subject: 'Reset your password - EventPulse',
+      subject: 'Reset your password - Eventra',
       message: htmlBody,
     })
     if (result.success) {
@@ -65,7 +65,7 @@ export class EmailService {
 
     await EmailQueue.create({
       to: user.email,
-      subject: 'Reset your password - EventPulse',
+      subject: 'Reset your password - Eventra',
       html: htmlBody,
       priority: 'high',
       status: 'queued',
@@ -93,7 +93,7 @@ export class EmailService {
     venueLabel: string
     ticketCodes: string[]
   }): Promise<{ success: boolean }> {
-    const htmlBody = ticketConfirmationTemplate(user.fullname, eventTitle, eventDateLabel, venueLabel, ticketCodes.length)
+    const htmlBody = ticketConfirmationTemplate(user.fullname, eventTitle, eventDateLabel, venueLabel, ticketCodes.length, ticketCodes)
 
     const attachments = await Promise.all(
       ticketCodes.map(async (code, index) => ({
@@ -115,7 +115,7 @@ export class EmailService {
   static async sendOrganizerApprovedEmail(user: any): Promise<{ success: boolean }> {
     const result = await sendEmail({
       email: user.email,
-      subject: "You're approved to organize on EventPulse",
+      subject: "You're approved to organize on Eventra",
       message: organizerApprovedTemplate(user.fullname),
     })
     return { success: result.success }

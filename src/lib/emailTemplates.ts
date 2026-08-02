@@ -1,361 +1,405 @@
+// Brand palette pulled from the actual app (index.css / ticket-card.tsx),
+// not invented for email — #0C5C48 is the same gradient start used on the
+// in-app ticket stub, so a ticket looks like the same "brand" wherever
+// it's seen. Email clients can't read CSS custom properties, so these are
+// hardcoded hex, kept in one place for this file to stay consistent.
+const BRAND_GREEN = '#0C5C48'
+const BRAND_GREEN_DARK = '#021713'
+const BRAND_MINT = '#E9F5F0'
+const BRAND_AMBER = '#F59E0B'
+const INK = '#1C1917'
+const SUBTLE = '#57534E'
+const MUTED = '#A8A29E'
+
 const baseLayout = (
-  title: string,
-  name: string,
-  content: string,
-  actionLink?: string,
-  actionText?: string,
-  expiryText?: string,
-  code?: string
+  title: string,
+  name: string,
+  content: string,
+  actionLink?: string,
+  actionText?: string,
+  expiryText?: string,
+  code?: string
 ) => `
-    <!DOCTYPE html>
-    <html lang="en">
-      <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-        <title>${title} - EventPulse</title>
-        <style>
-          @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+    <!DOCTYPE html>
+    <html lang="en">
+      <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+        <title>${title} - Eventra</title>
+        <style>
+          @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
 
-          body {
-            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background-color: #F5F0EB;
-            margin: 0;
-            padding: 0;
-            -webkit-font-smoothing: antialiased;
-          }
+          body {
+            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #F5F0EB;
+            margin: 0;
+            padding: 0;
+            -webkit-font-smoothing: antialiased;
+          }
 
-          .wrapper {
-            width: 100%;
-            table-layout: fixed;
-            background-color: #F5F0EB;
-            padding: 48px 0;
-          }
+          .wrapper {
+            width: 100%;
+            table-layout: fixed;
+            background-color: #F5F0EB;
+            padding: 48px 0;
+          }
 
-          .container {
-            width: 100%;
-            max-width: 600px;
-            background-color: #FFFFFF;
-            margin: 0 auto;
-            border-radius: 24px;
-            overflow: hidden;
-            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.06);
-            border: 1px solid #EAE2D7;
-          }
+          .container {
+            width: 100%;
+            max-width: 600px;
+            background-color: #FFFFFF;
+            margin: 0 auto;
+            border-radius: 24px;
+            overflow: hidden;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.06);
+            border: 1px solid #EAE2D7;
+          }
 
-          /* Decorative top banner */
-          .top-banner {
-            height: 8px;
-            background: linear-gradient(90deg, #7C3AED 0%, #C084FC 50%, #F59E0B 100%);
-          }
+          /* Solid brand banner instead of a decorative gradient — reads as
+             "Eventra green" at a glance rather than generic rainbow trim */
+          .top-banner {
+            height: 6px;
+            background-color: ${BRAND_GREEN};
+          }
 
-          /* Confetti decoration */
-          .confetti-dots {
-            display: flex;
-            gap: 6px;
-            margin-top: 8px;
-          }
+          .header {
+            background-color: #FFFFFF;
+            padding: 32px 40px 20px;
+            text-align: left;
+          }
 
-          .confetti-dot {
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-          }
+          .logo-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+          }
 
-          .confetti-dot.purple { background-color: #7C3AED; }
-          .confetti-dot.amber { background-color: #F59E0B; }
-          .confetti-dot.pink { background-color: #EC4899; }
-          .confetti-dot.teal { background-color: #14B8A6; }
+          .logo-text {
+            font-size: 22px;
+            font-weight: 800;
+            color: ${INK};
+            letter-spacing: -0.02em;
+            display: flex;
+            align-items: center;
+          }
 
-          .header {
-            background-color: #FFFFFF;
-            padding: 32px 40px 20px;
-            text-align: left;
-          }
+          .event-badge {
+            font-size: 11px;
+            font-weight: 700;
+            color: ${BRAND_GREEN};
+            background-color: ${BRAND_MINT};
+            padding: 4px 10px;
+            border-radius: 20px;
+            letter-spacing: 0.03em;
+            text-transform: uppercase;
+          }
 
-          .logo-row {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-          }
+          .content {
+            padding: 32px 40px;
+            color: ${SUBTLE};
+          }
 
-          .logo-text {
-            font-size: 22px;
-            font-weight: 800;
-            color: #1C1917;
-            letter-spacing: -0.02em;
-            display: flex;
-            align-items: center;
-          }
+          .title {
+            font-size: 26px;
+            font-weight: 700;
+            margin-bottom: 20px;
+            color: ${INK};
+            letter-spacing: -0.02em;
+            line-height: 1.2;
+          }
 
-          .event-badge {
-            font-size: 11px;
-            font-weight: 600;
-            color: #7C3AED;
-            background-color: #F5F3FF;
-            padding: 4px 10px;
-            border-radius: 20px;
-            letter-spacing: 0.03em;
-            text-transform: uppercase;
-          }
+          .greeting {
+            font-size: 15px;
+            font-weight: 600;
+            color: ${BRAND_GREEN};
+            margin-bottom: 12px;
+          }
 
-          .content {
-            padding: 32px 40px;
-            color: #44403C;
-          }
+          .text {
+            font-size: 15px;
+            line-height: 1.7;
+            margin-bottom: 28px;
+            color: ${SUBTLE};
+          }
 
-          .title {
-            font-size: 26px;
-            font-weight: 700;
-            margin-bottom: 20px;
-            color: #1C1917;
-            letter-spacing: -0.02em;
-            line-height: 1.2;
-          }
+          .ticket-line {
+            margin: 24px 0;
+            background-color: ${BRAND_MINT};
+            padding: 16px 20px;
+            border-radius: 12px;
+            border-left: 4px solid ${BRAND_GREEN};
+          }
 
-          .greeting {
-            font-size: 15px;
-            font-weight: 600;
-            color: #7C3AED;
-            margin-bottom: 12px;
-          }
+          .ticket-line p {
+            margin: 0;
+            font-size: 14px;
+            color: ${SUBTLE};
+            line-height: 1.6;
+          }
 
-          .text {
-            font-size: 15px;
-            line-height: 1.7;
-            margin-bottom: 28px;
-            color: #57534E;
-          }
+          .button-container {
+            margin: 32px 0;
+            text-align: center;
+          }
 
-          .ticket-line {
-            border-left: 3px solid #7C3AED;
-            padding-left: 16px;
-            margin: 24px 0;
-            background-color: #FAF5FF;
-            padding: 16px 20px;
-            border-radius: 12px;
-            border-left: 4px solid #7C3AED;
-          }
+          .button {
+            background-color: ${BRAND_GREEN};
+            color: #FFFFFF !important;
+            padding: 14px 32px;
+            border-radius: 12px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 15px;
+            display: inline-block;
+            box-shadow: 0 4px 14px rgba(12, 92, 72, 0.25);
+          }
 
-          .ticket-line p {
-            margin: 0;
-            font-size: 14px;
-            color: #57534E;
-            line-height: 1.6;
-          }
+          .code-display {
+            margin: 28px 0;
+            text-align: center;
+          }
 
-          .button-container {
-            margin: 32px 0;
-            text-align: center;
-          }
+          .code-digits {
+            display: inline-flex;
+            gap: 10px;
+            background-color: ${BRAND_MINT};
+            padding: 16px 24px;
+            border-radius: 16px;
+            border: 2px dashed ${BRAND_GREEN};
+          }
 
-          .button {
-            background: linear-gradient(135deg, #7C3AED 0%, #C084FC 100%);
-            color: #FFFFFF !important;
-            padding: 14px 32px;
-            border-radius: 12px;
-            text-decoration: none;
-            font-weight: 600;
-            font-size: 15px;
-            display: inline-block;
-            box-shadow: 0 4px 14px rgba(124, 58, 237, 0.25);
-            transition: all 0.2s;
-          }
+          .code-digit {
+            width: 48px;
+            height: 56px;
+            background-color: #FFFFFF;
+            border-radius: 12px;
+            border: 2px solid #CFE8DF;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            font-weight: 800;
+            color: ${BRAND_GREEN};
+            letter-spacing: 2px;
+          }
 
-          .code-display {
-            margin: 28px 0;
-            text-align: center;
-          }
+          .expiry-text {
+            font-size: 13px;
+            color: ${MUTED};
+            margin-top: 16px;
+            font-style: italic;
+            text-align: center;
+          }
 
-          .code-digits {
-            display: inline-flex;
-            gap: 10px;
-            background-color: #FAF5FF;
-            padding: 16px 24px;
-            border-radius: 16px;
-            border: 2px dashed #C084FC;
-          }
+          /* Ticket stub — mirrors the in-app ticket card: dark green
+             "boarding pass" header, perforated tear line, light counterfoil
+             below listing each code. Only used by ticketConfirmationTemplate. */
+          .stub {
+            margin: 24px 0;
+            border-radius: 16px;
+            overflow: hidden;
+            border: 1px solid #DCEEE7;
+          }
 
-          .code-digit {
-            width: 48px;
-            height: 56px;
-            background-color: #FFFFFF;
-            border-radius: 12px;
-            border: 2px solid #E9D5FF;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 28px;
-            font-weight: 800;
-            color: #7C3AED;
-            letter-spacing: 2px;
-          }
+          .stub-head {
+            background: linear-gradient(135deg, ${BRAND_GREEN} 0%, ${BRAND_GREEN_DARK} 100%);
+            color: #FFFFFF;
+            padding: 20px 24px;
+          }
 
-          .expiry-text {
-            font-size: 13px;
-            color: #A8A29E;
-            margin-top: 16px;
-            font-style: italic;
-            text-align: center;
-          }
+          .stub-eyebrow {
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: #BFE3D6;
+            margin: 0 0 6px;
+          }
 
-          .divider {
-            height: 1px;
-            background: linear-gradient(90deg, transparent, #E7E5E4, transparent);
-            margin: 32px 0;
-          }
+          .stub-title {
+            font-size: 19px;
+            font-weight: 700;
+            margin: 0 0 10px;
+            line-height: 1.3;
+          }
 
-          .footer {
-            padding: 0 40px 40px;
-            text-align: left;
-            color: #A8A29E;
-            font-size: 12px;
-          }
+          .stub-meta {
+            font-size: 13px;
+            color: #E4F3EE;
+            margin: 2px 0;
+          }
 
-          .footer-links {
-            margin-bottom: 16px;
-          }
+          .stub-tear {
+            height: 0;
+            border-top: 2px dashed #CFE8DF;
+            position: relative;
+          }
 
-          .footer-link {
-            color: #78716C;
-            text-decoration: none;
-            margin-right: 16px;
-            font-weight: 500;
-            font-size: 13px;
-          }
+          .stub-body {
+            background-color: ${BRAND_MINT};
+            padding: 18px 24px;
+          }
 
-          .footer-link:hover {
-            color: #7C3AED;
-          }
+          .stub-body-label {
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: ${BRAND_GREEN};
+            margin: 0 0 10px;
+          }
 
-          .social-row {
-            margin: 20px 0 16px;
-          }
+          .stub-code-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background-color: #FFFFFF;
+            border: 1px solid #CFE8DF;
+            border-radius: 10px;
+            padding: 10px 14px;
+            margin-bottom: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            color: ${INK};
+            font-weight: 700;
+            letter-spacing: 0.02em;
+          }
 
-          .social-icon {
-            display: inline-block;
-            margin-right: 12px;
-            width: 32px;
-            height: 32px;
-            border-radius: 8px;
-            background-color: #F5F0EB;
-            text-align: center;
-            line-height: 32px;
-            color: #78716C;
-            text-decoration: none;
-          }
+          .stub-code-row span.label {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-weight: 500;
+            color: ${SUBTLE};
+            letter-spacing: normal;
+          }
 
-          @media only screen and (max-width: 640px) {
-            .wrapper {
-              padding: 20px 0;
-            }
-            .container {
-              border-radius: 16px;
-              border-left: none;
-              border-right: none;
-            }
-            .content, .header, .footer {
-              padding-left: 24px;
-              padding-right: 24px;
-            }
-            .title {
-              font-size: 22px;
-            }
-          }
-        </style>
-      </head>
-      <body>
-        <div class="wrapper">
-          <div class="container">
-            <!-- Gradient top banner -->
-            <div class="top-banner"></div>
+          .divider {
+            height: 1px;
+            background: linear-gradient(90deg, transparent, #E7E5E4, transparent);
+            margin: 32px 0;
+          }
 
-            <div class="header">
-              <div class="logo-row">
-                <div class="logo-text">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#7C3AED" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 10px;">
-                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
-                    <line x1="16" y1="2" x2="16" y2="6"></line>
-                    <line x1="8" y1="2" x2="8" y2="6"></line>
-                    <line x1="3" y1="10" x2="21" y2="10"></line>
-                    <circle cx="12" cy="15" r="1"></circle>
-                    <circle cx="16" cy="15" r="1"></circle>
-                    <circle cx="8" cy="15" r="1"></circle>
-                  </svg>
-                  EventPulse
-                </div>
-                <span class="event-badge">:sparkles: Live</span>
-              </div>
-              <div class="confetti-dots">
-                <span class="confetti-dot purple"></span>
-                <span class="confetti-dot amber"></span>
-                <span class="confetti-dot pink"></span>
-                <span class="confetti-dot teal"></span>
-              </div>
-            </div>
+          .footer {
+            padding: 0 40px 40px;
+            text-align: left;
+            color: ${MUTED};
+            font-size: 12px;
+          }
 
-            <div class="content">
-              <h1 class="title">${title}</h1>
-              <p class="greeting">Hey ${name} :wave:,</p>
-              <div class="text">${content}</div>
+          .footer-links {
+            margin-bottom: 16px;
+          }
 
-              ${
-                actionLink
-                  ? `
-                <div class="button-container">
-                  <a href="${actionLink}" class="button">${actionText || "Let's Go"}</a>
-                </div>
-              `
-                  : ''
-              }
+          .footer-link {
+            color: #78716C;
+            text-decoration: none;
+            margin-right: 16px;
+            font-weight: 500;
+            font-size: 13px;
+          }
 
-              ${
-                code
-                  ? `
-                <div class="code-display">
-                  <div class="code-digits">
-                    ${code
-                      .split('')
-                      .map(d => `<div class="code-digit">${d}</div>`)
-                      .join('')}
-                  </div>
-                </div>
-              `
-                  : ''
-              }
+          .footer-link:hover {
+            color: ${BRAND_GREEN};
+          }
 
-              ${expiryText ? `<p class="expiry-text">:stopwatch: ${expiryText}</p>` : ''}
+          @media only screen and (max-width: 640px) {
+            .wrapper {
+              padding: 20px 0;
+            }
+            .container {
+              border-radius: 16px;
+              border-left: none;
+              border-right: none;
+            }
+            .content, .header, .footer {
+              padding-left: 24px;
+              padding-right: 24px;
+            }
+            .title {
+              font-size: 22px;
+            }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="wrapper">
+          <div class="container">
+            <div class="top-banner"></div>
 
-              <div class="divider"></div>
+            <div class="header">
+              <div class="logo-row">
+                <div class="logo-text">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="${BRAND_GREEN}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 10px;">
+                    <path d="M4 19 L9 4 L13 19 L17 6 L20 19" />
+                  </svg>
+                  Eventra
+                </div>
+                <span class="event-badge">✨ Live</span>
+              </div>
+            </div>
 
-              <p style="font-size: 13px; color: #A8A29E; line-height: 1.5; margin: 0;">
-                Didn't expect this email? No worries — just ignore it and we'll leave you.
-              </p>
-            </div>
+            <div class="content">
+              <h1 class="title">${title}</h1>
+              <p class="greeting">Hey ${name} 👋,</p>
+              <div class="text">${content}</div>
 
-            <div class="footer">
-              <div class="footer-links">
-                <a href="#" class="footer-link">Help Center</a>
-                <a href="#" class="footer-link">Privacy</a>
-                <a href="#" class="footer-link">Terms</a>
-                <a href="#" class="footer-link">Unsubscribe</a>
-              </div>
-              <p style="margin-bottom: 8px;">
-                © ${new Date().getFullYear()} EventPulse. All rights reserved.
-              </p>
-              <p style="color: #A8A29E; font-size: 12px;">
-                Making every event unforgettable. :circus_tent:
-              </p>
-            </div>
-          </div>
-        </div>
-      </body>
-    </html>
-  `
+              ${
+                actionLink
+                  ? `
+                <div class="button-container">
+                  <a href="${actionLink}" class="button">${actionText || "Let's Go"}</a>
+                </div>
+              `
+                  : ''
+              }
+
+              ${
+                code
+                  ? `
+                <div class="code-display">
+                  <div class="code-digits">
+                    ${code
+                      .split('')
+                      .map(d => `<div class="code-digit">${d}</div>`)
+                      .join('')}
+                  </div>
+                </div>
+              `
+                  : ''
+              }
+
+              ${expiryText ? `<p class="expiry-text">⏱️ ${expiryText}</p>` : ''}
+
+              <div class="divider"></div>
+
+              <p style="font-size: 13px; color: ${MUTED}; line-height: 1.5; margin: 0;">
+                Didn't expect this email? No worries — just ignore it and we'll leave you.
+              </p>
+            </div>
+
+            <div class="footer">
+              <div class="footer-links">
+                <a href="#" class="footer-link">Help Center</a>
+                <a href="#" class="footer-link">Privacy</a>
+                <a href="#" class="footer-link">Terms</a>
+                <a href="#" class="footer-link">Unsubscribe</a>
+              </div>
+              <p style="margin-bottom: 8px;">
+                © ${new Date().getFullYear()} Eventra. All rights reserved.
+              </p>
+              <p style="color: ${MUTED}; font-size: 12px;">
+                Making every event unforgettable. 🎪
+              </p>
+            </div>
+          </div>
+        </div>
+      </body>
+    </html>
+  `
 
 export const resetPasswordTemplate = (name: string, code: string) =>
   baseLayout(
-    'Reset your EventPulse password :key:',
+    'Reset your Eventra password 🔑',
     name,
     `
       We got a request to reset the password on your account.
@@ -367,33 +411,57 @@ export const resetPasswordTemplate = (name: string, code: string) =>
     code
   )
 
+/**
+ * Redesigned as an actual ticket stub (dark green "boarding pass" header +
+ * perforated tear + light counterfoil listing each code) rather than plain
+ * text lines — matches the in-app ticket-card.tsx look. QR codes still
+ * arrive as PNG attachments (one per ticket, see EmailService), not inlined
+ * here — Brevo's transactional API doesn't give a verified way to embed
+ * them as inline cid: images, so a wrongly-guessed approach risked
+ * breaking the email silently. Each code is shown as text on the stub so
+ * the attachment isn't the only way to identify a ticket.
+ */
 export const ticketConfirmationTemplate = (
   name: string,
   eventTitle: string,
   eventDateLabel: string,
   venueLabel: string,
-  ticketCount: number
+  ticketCount: number,
+  ticketCodes: string[] = []
 ) =>
   baseLayout(
-    `You're going to ${eventTitle}! :tada:`,
+    `You're going to ${eventTitle}! 🎉`,
     name,
     `
-      Your ${ticketCount > 1 ? `${ticketCount} tickets are` : 'ticket is'} confirmed.
+      Your ${ticketCount > 1 ? `${ticketCount} tickets are` : 'ticket is'} confirmed. Here's your ${ticketCount > 1 ? 'stub' : 'stub'} for the door:
 
-      <div class="ticket-line">
-        <p><strong style="color: #1C1917;">${eventTitle}</strong></p>
-        <p>${eventDateLabel}</p>
-        <p>${venueLabel}</p>
+      <div class="stub">
+        <div class="stub-head">
+          <p class="stub-eyebrow">${ticketCount > 1 ? `${ticketCount} Admissions` : 'General Admission'}</p>
+          <p class="stub-title">${eventTitle}</p>
+          <p class="stub-meta">${eventDateLabel}</p>
+          <p class="stub-meta">${venueLabel}</p>
+        </div>
+        <div class="stub-tear"></div>
+        <div class="stub-body">
+          <p class="stub-body-label">${ticketCount > 1 ? 'Ticket codes' : 'Ticket code'}</p>
+          ${ticketCodes
+            .map(
+              (code, i) =>
+                `<div class="stub-code-row"><span class="label">${ticketCodes.length > 1 ? `Guest ${i + 1}` : 'Code'}</span>${code}</div>`
+            )
+            .join('')}
+        </div>
       </div>
 
-      ${ticketCount > 1 ? 'Your QR codes are attached to this email' : 'Your QR code is attached to this email'} —
-      show it at the door for entry. You can also find it anytime under My Tickets.
+      Your QR ${ticketCount > 1 ? 'codes are' : 'code is'} attached to this email as ${ticketCount > 1 ? 'separate images' : 'an image'} —
+      show ${ticketCount > 1 ? 'them' : 'it'} at the door for entry. You can also find ${ticketCount > 1 ? 'them' : 'it'} anytime under My Tickets.
     `
   )
 
 export const organizerApprovedTemplate = (name: string) =>
   baseLayout(
-    "You're approved to organize on EventPulse! :white_check_mark:",
+    "You're approved to organize on Eventra! ✅",
     name,
     `
       Good news — your organizer account has been approved.
@@ -414,10 +482,10 @@ export const organizerRejectedTemplate = (name: string) =>
 
 export const eventApprovedTemplate = (name: string, eventTitle: string) =>
   baseLayout(
-    `${eventTitle} is live! :tada:`,
+    `${eventTitle} is live! 🎉`,
     name,
     `
-      Your event <strong style="color: #1C1917;">${eventTitle}</strong> has been reviewed and approved.
+      Your event <strong style="color: ${INK};">${eventTitle}</strong> has been reviewed and approved.
       It's now visible to attendees and ready to sell tickets or take reservations.
     `
   )
@@ -427,10 +495,10 @@ export const eventRejectedTemplate = (name: string, eventTitle: string, reason: 
     `${eventTitle} needs a change before it can go live`,
     name,
     `
-      Your event <strong style="color: #1C1917;">${eventTitle}</strong> wasn't approved this time.
+      Your event <strong style="color: ${INK};">${eventTitle}</strong> wasn't approved this time.
 
       <div class="ticket-line">
-        <strong style="color: #1C1917;">Reason:</strong> ${reason}
+        <strong style="color: ${INK};">Reason:</strong> ${reason}
       </div>
 
       You can edit the event and resubmit it for review once it's addressed.
@@ -442,10 +510,10 @@ export const refundProcessedTemplate = (name: string, eventTitle: string, amount
     'Your refund has been processed',
     name,
     `
-      Your refund for <strong style="color: #1C1917;">${eventTitle}</strong> has been processed.
+      Your refund for <strong style="color: ${INK};">${eventTitle}</strong> has been processed.
 
       <div class="ticket-line">
-        <strong style="color: #1C1917;">Amount refunded:</strong> ${amountLabel}
+        <strong style="color: ${INK};">Amount refunded:</strong> ${amountLabel}
       </div>
 
       It should reflect on your original payment method within a few business days, depending on your bank.
@@ -454,18 +522,18 @@ export const refundProcessedTemplate = (name: string, eventTitle: string, amount
 
 export const verifyAccountTemplate = (name: string, code: string, actionLink?: string) =>
   baseLayout(
-    'Your Access to EventPulse :admission_tickets:',
-    name,
-    `
-      Welcome to <strong>EventPulse</strong> — your backstage pass to managing incredible events.
-      You're one step away from going live.
+    'Your Access to Eventra 🎟️',
+    name,
+    `
+      Welcome to <strong>Eventra</strong> — your backstage pass to managing incredible events.
+      You're one step away from going live.
 
-      <div class="ticket-line">
-        <strong style="color: #1C1917;">Enter this code to verify your email</strong>
-      </div>
-    `,
-    actionLink,
-    'Verify & Join',
-    "This code expires in 15 minutes — don't miss the show.",
-    code
-  )
+      <div class="ticket-line">
+        <strong style="color: ${INK};">Enter this code to verify your email</strong>
+      </div>
+    `,
+    actionLink,
+    'Verify & Join',
+    "This code expires in 15 minutes — don't miss the show.",
+    code
+  )
