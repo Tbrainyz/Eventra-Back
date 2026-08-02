@@ -219,12 +219,28 @@ export const getOrganizerOverview = tryCatchWrapper(async (req: Request, res: Re
   const eventIds = events.map(event => event._id)
   const payoutFilter = { event: { $in: eventIds }, status: { $in: ['paid', 'partially_refunded'] } }
 
-  const [payoutTotals, nextPayoutOrder] = await Promise.all([
+  const now = new Date()
+  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+  const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000)
+
+  const [payoutTotals, nextPayoutOrder, periodTotals] = await Promise.all([
     Order.aggregate([{ $match: payoutFilter }, { $group: { _id: '$payoutStatus', amount: { $sum: '$organizerEarnings' } } }]),
     Order.findOne({ ...payoutFilter, payoutStatus: { $in: ['not_due', 'pending'] }, payoutAt: { $exists: true } })
       .sort({ payoutAt: 1 })
       .select('payoutAt')
       .lean(),
+    // Powers "vs last month" on the tickets sold / revenue cards — two
+    // real 30-day windows from paid orders, not a made-up figure.
+    Order.aggregate([
+      { $match: { event: { $in: eventIds }, status: 'paid', createdAt: { $gte: sixtyDaysAgo } } },
+      {
+        $group: {
+          _id: { $cond: [{ $gte: ['$createdAt', thirtyDaysAgo] }, 'current', 'previous'] },
+          tickets: { $sum: { $sum: '$items.quantity' } },
+          revenue: { $sum: '$organizerEarnings' },
+        },
+      },
+    ]),
   ])
 
   const totalsByStatus = payoutTotals.reduce((acc, t) => ({ ...acc, [t._id]: t.amount }), {} as Record<string, number>)
@@ -236,12 +252,22 @@ export const getOrganizerOverview = tryCatchWrapper(async (req: Request, res: Re
     nextPayoutInDays = Math.max(Math.ceil(msRemaining / (24 * 60 * 60 * 1000)), 0)
   }
 
+  const currentPeriod = periodTotals.find(p => p._id === 'current') ?? { tickets: 0, revenue: 0 }
+  const previousPeriod = periodTotals.find(p => p._id === 'previous') ?? { tickets: 0, revenue: 0 }
+  // null (not 0%) when there's no prior-period baseline to compare against
+  // — "+100%" off a true zero is meaningless, so the client shows no
+  // trend at all in that case rather than a misleading number.
+  const percentChange = (current: number, previous: number): number | null =>
+    previous > 0 ? Math.round(((current - previous) / previous) * 100) : null
+
   return sendTsRestSuccess(res, 200, {
     success: true,
     message: 'Overview fetched',
     body: {
       ticketsSold,
+      ticketsSoldChangePct: percentChange(currentPeriod.tickets, previousPeriod.tickets),
       revenue,
+      revenueChangePct: percentChange(currentPeriod.revenue, previousPeriod.revenue),
       liveEventsCount: liveCount,
       payoutDue,
       nextPayoutInDays,
