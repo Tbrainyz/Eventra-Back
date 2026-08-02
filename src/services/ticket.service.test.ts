@@ -79,13 +79,38 @@ describe('TicketService.rsvpToFreeEvent', () => {
     const event = await makeFreeEvent()
     const attendee = await makeAttendee()
 
-    const ticket = await TicketService.rsvpToFreeEvent(event._id.toString(), attendee)
+    const tickets = await TicketService.rsvpToFreeEvent(event._id.toString(), attendee)
 
-    expect(ticket.status).toBe('valid')
-    expect(ticket.type).toBe('free')
+    expect(tickets).toHaveLength(1)
+    expect(tickets[0].status).toBe('valid')
+    expect(tickets[0].type).toBe('free')
 
     const updatedEvent = await Event.findById(event._id).lean()
     expect(updatedEvent!.reservationsCount).toBe(1)
+  })
+
+  // Regression test: rsvpToFreeEvent's guests>1 path calls Ticket.create()
+  // with an array of documents inside a transaction session, which throws
+  // "Cannot call `create()` with a session and multiple documents unless
+  // `ordered: true` is set" unless that option is passed — every other
+  // test here only ever requests 1 guest, so this path went unexercised
+  // and the bug shipped. See ticket.service.ts's two Ticket.create() calls.
+  it('issues one ticket per guest when reserving for multiple guests', async () => {
+    const { TicketService } = await import('./ticket.service.js')
+    const event = await makeFreeEvent({ capacity: 10 })
+    const attendee = await makeAttendee()
+
+    const tickets = await TicketService.rsvpToFreeEvent(event._id.toString(), attendee, 3)
+
+    expect(tickets).toHaveLength(3)
+    expect(new Set(tickets.map(t => t.code)).size).toBe(3) // each ticket gets its own unique code
+    tickets.forEach(ticket => {
+      expect(ticket.status).toBe('valid')
+      expect(ticket.type).toBe('free')
+    })
+
+    const updatedEvent = await Event.findById(event._id).lean()
+    expect(updatedEvent!.reservationsCount).toBe(3)
   })
 
   it('rejects a reservation once the event is at capacity', async () => {

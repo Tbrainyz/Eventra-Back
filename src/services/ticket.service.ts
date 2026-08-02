@@ -77,7 +77,7 @@ export class TicketService {
             attendeeEmail: user.email,
             status: 'valid' as const,
           })),
-          { session }
+          { session, ordered: true }
         )
       })
     } finally {
@@ -140,7 +140,7 @@ export class TicketService {
             status: 'valid' as const,
           }))
 
-          const created = await Ticket.create(ticketsForItem, { session })
+          const created = await Ticket.create(ticketsForItem, { session, ordered: true })
           issuedTickets.push(...created)
         }
 
