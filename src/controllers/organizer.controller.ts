@@ -6,6 +6,7 @@ import Event from '../models/event.js'
 import Order from '../models/order.js'
 import User, { IOrganizerProfile } from '../models/user.js'
 import { PaystackService } from '../services/paystack.service.js'
+import { deriveEventDisplayStatus } from '../lib/eventStatus.js'
 
 /**
  * Create or update the caller's organizer profile (org info + bank
@@ -35,6 +36,11 @@ export const upsertOrganizerProfile = tryCatchWrapper(async (req: Request, res: 
   const nextApprovalStatus: IOrganizerProfile['approvalStatus'] =
     existing?.approvalStatus === 'approved' && bankDetailsChanged ? 'pending' : (existing?.approvalStatus ?? 'draft')
 
+  const bankName = req.body.bankName ?? existing?.bankName
+  const bankCode = req.body.bankCode ?? existing?.bankCode
+  const accountNumber = req.body.accountNumber ?? existing?.accountNumber
+  const accountName = req.body.accountName ?? existing?.accountName
+
   user.organizerProfile = {
     businessName: req.body.businessName ?? existing?.businessName,
     category: req.body.category ?? existing?.category,
@@ -42,11 +48,15 @@ export const upsertOrganizerProfile = tryCatchWrapper(async (req: Request, res: 
     contactPhone: req.body.contactPhone ?? existing?.contactPhone,
     publicEmail: req.body.publicEmail ?? existing?.publicEmail,
     bio: req.body.bio ?? existing?.bio,
-    bankName: req.body.bankName ?? existing?.bankName,
-    bankCode: req.body.bankCode ?? existing?.bankCode,
-    accountNumber: req.body.accountNumber ?? existing?.accountNumber,
-    accountName: req.body.accountName ?? existing?.accountName,
-    isPayoutReady: existing?.isPayoutReady ?? false,
+    bankName,
+    bankCode,
+    accountNumber,
+    accountName,
+    // "Ready" just means a fully resolved bank account is on file — this
+    // drives the dashboard's "Finish setting up your account" banner
+    // (see organizer/overview) independently of admin approval, since a
+    // free-events-only organizer can be approved without ever adding one.
+    isPayoutReady: !!(bankName && bankCode && accountNumber && accountName),
     approvalStatus: nextApprovalStatus,
     paystackRecipientCode: existing?.paystackRecipientCode,
     agreedToTerms: req.body.agreedToTerms ?? existing?.agreedToTerms ?? false,
@@ -155,6 +165,89 @@ export const resolveBankAccount = tryCatchWrapper(async (req: Request, res: Resp
   } catch (error: any) {
     return sendTsRestError(res, 400, error.message || 'Could not verify this account number')
   }
+})
+
+const STATUS_LABEL: Record<string, string> = {
+  draft: 'Draft',
+  pending_approval: 'Pending',
+  rejected: 'Rejected',
+  cancelled: 'Cancelled',
+  postponed: 'Postponed',
+  sold_out: 'Sold out',
+  live: 'Live',
+  past: 'Past',
+}
+
+/**
+ * Powers the dashboard's Overview page: the 4 stat cards (tickets sold,
+ * revenue, live events, payout due) and the "Recent events" table.
+ */
+export const getOrganizerOverview = tryCatchWrapper(async (req: Request, res: Response) => {
+  const events = await Event.find({ organizer: req.session.userId })
+    .select('title slug coverImage type status startDate endDate capacity ticketsSoldCount reservationsCount revenueTotal category')
+    .populate('category', 'name')
+    .sort({ createdAt: -1 })
+    .lean()
+
+  let ticketsSold = 0
+  let revenue = 0
+  let liveCount = 0
+
+  const recentEvents = events.slice(0, 6).map(event => {
+    const soldCount = event.type === 'free' ? event.reservationsCount : event.ticketsSoldCount
+    const displayStatus = deriveEventDisplayStatus(event)
+    return {
+      _id: event._id,
+      title: event.title,
+      slug: event.slug,
+      coverImage: event.coverImage,
+      category: (event.category as any)?.name,
+      startDate: event.startDate,
+      soldCount,
+      capacity: event.capacity ?? null,
+      status: displayStatus,
+      statusLabel: STATUS_LABEL[displayStatus] ?? displayStatus,
+    }
+  })
+
+  for (const event of events) {
+    ticketsSold += event.ticketsSoldCount + event.reservationsCount
+    revenue += event.revenueTotal
+    if (deriveEventDisplayStatus(event) === 'live') liveCount += 1
+  }
+
+  const eventIds = events.map(event => event._id)
+  const payoutFilter = { event: { $in: eventIds }, status: { $in: ['paid', 'partially_refunded'] } }
+
+  const [payoutTotals, nextPayoutOrder] = await Promise.all([
+    Order.aggregate([{ $match: payoutFilter }, { $group: { _id: '$payoutStatus', amount: { $sum: '$organizerEarnings' } } }]),
+    Order.findOne({ ...payoutFilter, payoutStatus: { $in: ['not_due', 'pending'] }, payoutAt: { $exists: true } })
+      .sort({ payoutAt: 1 })
+      .select('payoutAt')
+      .lean(),
+  ])
+
+  const totalsByStatus = payoutTotals.reduce((acc, t) => ({ ...acc, [t._id]: t.amount }), {} as Record<string, number>)
+  const payoutDue = (totalsByStatus.pending ?? 0) + (totalsByStatus.processing ?? 0)
+
+  let nextPayoutInDays: number | null = null
+  if (nextPayoutOrder?.payoutAt) {
+    const msRemaining = new Date(nextPayoutOrder.payoutAt).getTime() - Date.now()
+    nextPayoutInDays = Math.max(Math.ceil(msRemaining / (24 * 60 * 60 * 1000)), 0)
+  }
+
+  return sendTsRestSuccess(res, 200, {
+    success: true,
+    message: 'Overview fetched',
+    body: {
+      ticketsSold,
+      revenue,
+      liveEventsCount: liveCount,
+      payoutDue,
+      nextPayoutInDays,
+      recentEvents,
+    },
+  })
 })
 
 export const listOrganizerPayouts = tryCatchWrapper(async (req: Request, res: Response) => {

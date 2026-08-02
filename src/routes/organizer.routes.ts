@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import {
+  getOrganizerOverview,
   getOrganizerProfile,
   listBanks,
   listOrganizerPayouts,
@@ -20,6 +21,7 @@ router.patch('/profile', validateFormData(organizerProfileSchema), upsertOrganiz
 router.post('/profile/submit', submitOrganizerProfileForReview)
 router.get('/banks', listBanks)
 router.post('/resolve-account', validateFormData(resolveBankAccountSchema), resolveBankAccount)
+router.get('/overview', getOrganizerOverview)
 router.get('/payouts', listOrganizerPayouts)
 
 export default router
