@@ -4,31 +4,52 @@ import {
   getOrderByReference,
   getTicketQrCode,
   initializeCheckout,
+  listGuestTickets,
   myTickets,
+  requestGuestTicketAccess,
   requestRefund,
   rsvpFreeEvent,
+  verifyGuestTicketAccess,
 } from '../controllers/ticket.controller.js'
 import { verifySession } from '../middlewares/auth.middleware.js'
-import { checkoutSchema, refundRequestSchema, rsvpSchema } from '../lib/schemaValidation.js'
+import {
+  checkoutSchema,
+  guestTicketAccessRequestSchema,
+  guestTicketAccessVerifySchema,
+  refundRequestSchema,
+  rsvpSchema,
+} from '../lib/schemaValidation.js'
 import { validateFormData } from '../middlewares/schema.middleware.js'
 import { customRateLimiter } from '../middlewares/rateLimit.middleware.js'
 
 const router = Router()
 
-router.post('/rsvp/:eventId', verifySession, customRateLimiter(10), validateFormData(rsvpSchema), rsvpFreeEvent)
-
-router.post('/checkout/:eventId', verifySession, customRateLimiter(10), validateFormData(checkoutSchema), initializeCheckout)
+// No verifySession on these — both work for a logged-in user (session)
+// or a guest (guestName/guestEmail/guestPhone in the body). See
+// resolveAttendeeInfo in lib/attendee.ts for how that's decided.
+router.post('/rsvp/:eventId', customRateLimiter(10), validateFormData(rsvpSchema), rsvpFreeEvent)
+router.post('/checkout/:eventId', customRateLimiter(10), validateFormData(checkoutSchema), initializeCheckout)
 
 router.get('/my-tickets', verifySession, myTickets)
 
+// "Track my ticket by email" — for a guest who wants to view/manage a
+// ticket later, whether or not the confirmation email actually arrived.
+router.post('/guest-access/request', customRateLimiter(5), validateFormData(guestTicketAccessRequestSchema), requestGuestTicketAccess)
+router.post('/guest-access/verify', customRateLimiter(10), validateFormData(guestTicketAccessVerifySchema), verifyGuestTicketAccess)
+router.get('/guest-access/tickets', listGuestTickets) // controller itself checks req.session.guestEmail
+
 // Polled by /checkout/callback on the client after the Paystack redirect —
 // keep this above '/:ticketId/qrcode' so 'orders' isn't swallowed as a ticketId.
-router.get('/orders/:reference', verifySession, getOrderByReference)
+// No verifySession: the reference is itself an unguessable capability (see
+// getOrderByReference), same trust model as a payment receipt link.
+router.get('/orders/:reference', getOrderByReference)
 
-router.get('/:ticketId/qrcode', verifySession, getTicketQrCode)
-
-router.delete('/:ticketId/reservation', verifySession, cancelReservation)
-
-router.post('/:ticketId/refund-request', verifySession, validateFormData(refundRequestSchema), requestRefund)
+// No verifySession on these three — ownership is checked inside each
+// controller via ticketBelongsToRequester, which accepts either a logged-in
+// session or a verified guestEmail session. An anonymous request with
+// neither just gets a 404, same as trying to access someone else's ticket.
+router.get('/:ticketId/qrcode', getTicketQrCode)
+router.delete('/:ticketId/reservation', cancelReservation)
+router.post('/:ticketId/refund-request', validateFormData(refundRequestSchema), requestRefund)
 
 export default router

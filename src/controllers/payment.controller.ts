@@ -9,6 +9,7 @@ import Order from '../models/order.js'
 import User from '../models/user.js'
 import { PaystackService } from '../services/paystack.service.js'
 import { TicketService } from '../services/ticket.service.js'
+import type { AttendeeInfo } from '../lib/attendee.js'
 
 /**
  * Verifies the `x-paystack-signature` header against the raw request body.
@@ -45,14 +46,23 @@ const handleTicketOrderPayment = async (reference: string): Promise<void> => {
     return
   }
 
-  const buyer = await User.findById(order.buyer)
-  if (!buyer) {
-    logger.error(`Paystack webhook: buyer not found for order ${order._id}`)
+  let attendee: AttendeeInfo
+  if (order.buyer) {
+    const buyer = await User.findById(order.buyer)
+    if (!buyer) {
+      logger.error(`Paystack webhook: buyer not found for order ${order._id}`)
+      return
+    }
+    attendee = { userId: buyer._id.toString(), fullname: buyer.fullname, email: buyer.email, phone: buyer.phone }
+  } else if (order.guestEmail && order.guestName) {
+    attendee = { fullname: order.guestName, email: order.guestEmail, phone: order.guestPhone }
+  } else {
+    logger.error(`Paystack webhook: order ${order._id} has neither a buyer nor guest contact details`)
     return
   }
 
   try {
-    await TicketService.issueTicketsForPaidOrder(order, buyer)
+    await TicketService.issueTicketsForPaidOrder(order, attendee)
   } catch (error: any) {
     // Stock ran out between checkout and payment confirmation — mark for a refund,
     // an admin/organizer must resolve this manually per the PRD's refund process.

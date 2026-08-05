@@ -7,27 +7,35 @@ import Order, { calculateOrderTotals } from '../models/order.js'
 import RefundRequest from '../models/refundRequest.js'
 import Ticket from '../models/ticket.js'
 import TicketType from '../models/ticketType.js'
-import User from '../models/user.js'
 import { PaystackService } from '../services/paystack.service.js'
 import { TicketService } from '../services/ticket.service.js'
+import { resolveAttendeeInfo, ticketBelongsToRequester } from '../lib/attendee.js'
 import { env } from '../config/keys.js'
 import { generateQrCodeDataUrl } from '../lib/qrcode.js'
 import { checkRefundEligibility } from '../lib/refundPolicy.js'
-import { buildPaginationMeta, getPagination } from '../lib/utils.js'
+import { buildPaginationMeta, getPagination, generateOTP } from '../lib/utils.js'
+import GuestAccessCode from '../models/guestAccessCode.js'
+import { EmailService } from '../services/email.service.js'
+import logger from '../config/logger.js'
 
 const NAIRA_TO_KOBO = 100
 
 export const rsvpFreeEvent = tryCatchWrapper(async (req: Request, res: Response) => {
   const { eventId } = req.params
-  const { guests } = req.body as { guests?: number }
+  const { guests, guestName, guestEmail, guestPhone } = req.body as {
+    guests?: number
+    guestName?: string
+    guestEmail?: string
+    guestPhone?: string
+  }
 
-  const user = await User.findById(req.session.userId)
-  if (!user) {
-    return sendTsRestError(res, 404, 'User not found')
+  const attendee = await resolveAttendeeInfo(req, { guestName, guestEmail, guestPhone })
+  if (!attendee) {
+    return sendTsRestError(res, 400, 'Log in, or provide your name and email to reserve without an account')
   }
 
   try {
-    const tickets = await TicketService.rsvpToFreeEvent(eventId as string, user, guests ?? 1)
+    const tickets = await TicketService.rsvpToFreeEvent(eventId as string, attendee, guests ?? 1)
     return sendTsRestSuccess(res, 201, {
       success: true,
       message: tickets.length > 1 ? `Reservation confirmed for ${tickets.length} guests` : 'Reservation confirmed',
@@ -48,32 +56,59 @@ export const rsvpFreeEvent = tryCatchWrapper(async (req: Request, res: Response)
 export const getOrderByReference = tryCatchWrapper(async (req: Request, res: Response) => {
   const { reference } = req.params
 
-  const order = await Order.findOne({ paystackReference: reference, buyer: req.session.userId })
-    .populate('event', 'title slug startDate venue coverImage')
-    .lean()
+  // Logged in: still scoped to their own orders, same as before. No
+  // session (guest checkout): the reference itself — an unguessable
+  // randomUUID-based string only ever shown to whoever completed this
+  // specific checkout — is treated as the access key, same trust model as
+  // a payment receipt link.
+  const filter = req.session?.userId ? { paystackReference: reference, buyer: req.session.userId } : { paystackReference: reference }
+
+  const order = await Order.findOne(filter).populate('event', 'title slug startDate venue coverImage').lean()
 
   if (!order) {
     return sendTsRestError(res, 404, 'Order not found')
   }
 
+  // Included directly rather than making the client cross-reference
+  // /tickets/my-tickets — that endpoint requires a session, which a guest
+  // checkout doesn't have, so relying on it here would leave a guest stuck
+  // on the "confirming payment" screen forever even after paying.
+  const tickets =
+    order.status === 'paid'
+      ? await Ticket.find({ order: order._id }).populate('event', 'title slug startDate venue coverImage').populate('ticketType', 'name').lean()
+      : []
+
   return sendTsRestSuccess(res, 200, {
     success: true,
     message: 'Order fetched',
-    body: order,
+    body: { ...order, tickets },
   })
 })
 
 export const initializeCheckout = tryCatchWrapper(async (req: Request, res: Response) => {
   const { eventId } = req.params
-  const { items } = req.body as { items: { ticketTypeId: string; quantity: number }[] }
+  const {
+    items,
+    guestName,
+    guestEmail,
+    guestPhone,
+  } = req.body as {
+    items: { ticketTypeId: string; quantity: number }[]
+    guestName?: string
+    guestEmail?: string
+    guestPhone?: string
+  }
 
-  const [event, user] = await Promise.all([Event.findById(eventId), User.findById(req.session.userId)])
+  const [event, attendee] = await Promise.all([
+    Event.findById(eventId),
+    resolveAttendeeInfo(req, { guestName, guestEmail, guestPhone }),
+  ])
 
   if (!event || event.type !== 'paid' || event.status !== 'approved') {
     return sendTsRestError(res, 404, 'This event is not open for ticket purchases')
   }
-  if (!user) {
-    return sendTsRestError(res, 404, 'User not found')
+  if (!attendee) {
+    return sendTsRestError(res, 400, 'Log in, or provide your name and email to check out without an account')
   }
 
   const ticketTypeIds = items.map(item => item.ticketTypeId)
@@ -104,7 +139,9 @@ export const initializeCheckout = tryCatchWrapper(async (req: Request, res: Resp
 
   const order = await Order.create({
     event: event._id,
-    buyer: user._id,
+    ...(attendee.userId
+      ? { buyer: attendee.userId }
+      : { guestName: attendee.fullname, guestEmail: attendee.email, guestPhone: attendee.phone }),
     items: orderItems,
     ...totals,
     status: 'pending',
@@ -113,7 +150,7 @@ export const initializeCheckout = tryCatchWrapper(async (req: Request, res: Resp
 
   try {
     const paystackTx = await PaystackService.initializeTransaction({
-      email: user.email,
+      email: attendee.email,
       amountKobo: Math.round(totals.total * NAIRA_TO_KOBO),
       reference,
       callbackUrl: `${env.CLIENT_URL}/checkout/callback`,
@@ -151,8 +188,8 @@ export const initializeCheckout = tryCatchWrapper(async (req: Request, res: Resp
 export const cancelReservation = tryCatchWrapper(async (req: Request, res: Response) => {
   const { ticketId } = req.params
 
-  const ticket = await Ticket.findOne({ _id: ticketId, attendee: req.session.userId, type: 'free' })
-  if (!ticket) {
+  const ticket = await Ticket.findOne({ _id: ticketId, type: 'free' })
+  if (!ticket || !ticketBelongsToRequester(req, ticket)) {
     return sendTsRestError(res, 404, 'Reservation not found')
   }
   if (ticket.status !== 'valid') {
@@ -176,8 +213,8 @@ export const requestRefund = tryCatchWrapper(async (req: Request, res: Response)
   const { ticketId } = req.params
   const { reason } = req.body as { reason?: string }
 
-  const ticket = await Ticket.findOne({ _id: ticketId, attendee: req.session.userId, type: 'paid' })
-  if (!ticket) {
+  const ticket = await Ticket.findOne({ _id: ticketId, type: 'paid' })
+  if (!ticket || !ticketBelongsToRequester(req, ticket)) {
     return sendTsRestError(res, 404, 'Ticket not found')
   }
   if (ticket.status !== 'valid' && ticket.status !== 'checked_in') {
@@ -203,7 +240,7 @@ export const requestRefund = tryCatchWrapper(async (req: Request, res: Response)
     ticket: ticket._id,
     order: ticket.order,
     event: ticket.event,
-    requestedBy: req.session.userId,
+    requestedBy: req.session?.userId,
     reason,
     amount: ticket.price,
   })
@@ -212,6 +249,90 @@ export const requestRefund = tryCatchWrapper(async (req: Request, res: Response)
     success: true,
     message: 'Refund request submitted for admin review',
     body: refundRequest.toObject(),
+  })
+})
+
+const GUEST_ACCESS_OTP_TTL_MS = 15 * 60 * 1000 // matches the copy in guestTicketAccessTemplate
+
+/**
+ * Step 1 of "track my ticket by email" — always returns a generic success
+ * message regardless of whether this email actually has any tickets, so
+ * this can't be used to enumerate who has bought/reserved what.
+ */
+export const requestGuestTicketAccess = tryCatchWrapper(async (req: Request, res: Response) => {
+  const { email } = req.body as { email: string }
+  const normalizedEmail = email.trim().toLowerCase()
+
+  const hasAnyTickets = await Ticket.exists({ attendeeEmail: normalizedEmail })
+  if (hasAnyTickets) {
+    const otp = generateOTP()
+    await GuestAccessCode.create({
+      email: normalizedEmail,
+      otp,
+      otpExpiry: new Date(Date.now() + GUEST_ACCESS_OTP_TTL_MS),
+    })
+    EmailService.sendGuestTicketAccessEmail({ email: normalizedEmail, otp }).catch(error =>
+      logger.error({ err: error }, `Guest ticket access email failed for ${normalizedEmail}`)
+    )
+  }
+
+  return sendTsRestSuccess<undefined>(res, 200, {
+    success: true,
+    message: "If that email has any tickets, we've sent a code to access them.",
+  })
+})
+
+/**
+ * Step 2 — verifying the code sets req.session.guestEmail, which is what
+ * ticketBelongsToRequester (lib/attendee.ts) checks for cancelReservation /
+ * requestRefund / getTicketQrCode from here on. Also returns the ticket
+ * list directly so the client doesn't need a third round-trip.
+ */
+export const verifyGuestTicketAccess = tryCatchWrapper(async (req: Request, res: Response) => {
+  const { email, otp } = req.body as { email: string; otp: string }
+  const normalizedEmail = email.trim().toLowerCase()
+
+  const accessCode = await GuestAccessCode.findOne({ email: normalizedEmail, otp }).sort({ createdAt: -1 })
+  if (!accessCode || accessCode.otpExpiry.getTime() < Date.now()) {
+    return sendTsRestError(res, 400, 'Invalid or expired code')
+  }
+
+  await GuestAccessCode.deleteMany({ email: normalizedEmail })
+  req.session.guestEmail = normalizedEmail
+
+  const tickets = await Ticket.find({ attendeeEmail: normalizedEmail })
+    .populate('event', 'title slug startDate venue coverImage')
+    .populate('ticketType', 'name')
+    .sort({ createdAt: -1 })
+    .lean()
+
+  return sendTsRestSuccess(res, 200, {
+    success: true,
+    message: 'Access granted',
+    body: tickets,
+  })
+})
+
+/**
+ * Re-lists a verified guest's tickets without re-sending a code — used
+ * when they come back to the tracking page later in the same browser
+ * session (req.session.guestEmail persists via the normal session cookie).
+ */
+export const listGuestTickets = tryCatchWrapper(async (req: Request, res: Response) => {
+  if (!req.session.guestEmail) {
+    return sendTsRestError(res, 401, 'Verify your email to view your tickets')
+  }
+
+  const tickets = await Ticket.find({ attendeeEmail: req.session.guestEmail })
+    .populate('event', 'title slug startDate venue coverImage')
+    .populate('ticketType', 'name')
+    .sort({ createdAt: -1 })
+    .lean()
+
+  return sendTsRestSuccess(res, 200, {
+    success: true,
+    message: 'Tickets fetched',
+    body: tickets,
   })
 })
 
@@ -232,8 +353,8 @@ export const myTickets = tryCatchWrapper(async (req: Request, res: Response) => 
 export const getTicketQrCode = tryCatchWrapper(async (req: Request, res: Response) => {
   const { ticketId } = req.params
 
-  const ticket = await Ticket.findOne({ _id: ticketId, attendee: req.session.userId }).lean()
-  if (!ticket) {
+  const ticket = await Ticket.findOne({ _id: ticketId }).lean()
+  if (!ticket || !ticketBelongsToRequester(req, ticket)) {
     return sendTsRestError(res, 404, 'Ticket not found')
   }
 

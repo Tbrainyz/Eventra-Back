@@ -50,6 +50,12 @@ export const checkoutSchema = z.object({
       })
     )
     .min(1, 'At least one ticket item is required'),
+  // Only required when there's no session — resolveAttendeeInfo
+  // (lib/attendee.ts) is what actually enforces that, since it depends on
+  // req.session, which isn't visible to a Zod schema.
+  guestName: z.string().trim().min(2).optional(),
+  guestEmail: z.string().trim().toLowerCase().email().optional(),
+  guestPhone: z.string().trim().min(7).optional(),
 })
 
 export const organizerProfileSchema = z.object({
@@ -139,6 +145,20 @@ export const rejectEventSchema = z.object({
 
 export const rsvpSchema = z.object({
   guests: z.number().int().min(1).max(4).optional(),
+  // Same deal as checkoutSchema — only actually required when there's no
+  // session, enforced by resolveAttendeeInfo, not here.
+  guestName: z.string().trim().min(2).optional(),
+  guestEmail: z.string().trim().toLowerCase().email().optional(),
+  guestPhone: z.string().trim().min(7).optional(),
+})
+
+export const guestTicketAccessRequestSchema = z.object({
+  email: z.string().trim().toLowerCase().email('Enter a valid email address'),
+})
+
+export const guestTicketAccessVerifySchema = z.object({
+  email: z.string().trim().toLowerCase().email('Enter a valid email address'),
+  otp: z.string().trim().length(6, 'Enter the 6-digit code'),
 })
 
 export const updateProfileSchema = z

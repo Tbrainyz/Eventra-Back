@@ -1,9 +1,11 @@
 import { Request, Response } from 'express'
+import mongoose from 'mongoose'
 import { sendTsRestError, sendTsRestSuccess } from '../lib/responseHandler.js'
 import tryCatchWrapper from '../lib/tryCatchWrapper.js'
 import { buildPaginationMeta, getPagination, sanitizeUser } from '../lib/utils.js'
 import Event from '../models/event.js'
 import Order from '../models/order.js'
+import Ticket from '../models/ticket.js'
 import User, { IOrganizerProfile } from '../models/user.js'
 import { PaystackService } from '../services/paystack.service.js'
 import { deriveEventDisplayStatus } from '../lib/eventStatus.js'
@@ -182,6 +184,83 @@ const STATUS_LABEL: Record<string, string> = {
  * Powers the dashboard's Overview page: the 4 stat cards (tickets sold,
  * revenue, live events, payout due) and the "Recent events" table.
  */
+type RevenuePeriod = '7d' | '30d' | '1m'
+
+/**
+ * Powers the Revenue chart's period toggle. '7d'/'30d' are trailing daily
+ * windows (7 or 30 points); '1m' is the current calendar month bucketed by
+ * week instead — a deliberately different granularity, not just a third
+ * date range, since 30 daily points and "this month" would otherwise show
+ * near-identical shapes for most events.
+ */
+async function buildRevenueSeries(eventIds: mongoose.Types.ObjectId[], period: string): Promise<{ label: string; amount: number }[]> {
+  const normalizedPeriod: RevenuePeriod = period === '7d' || period === '1m' ? period : '30d'
+  const now = new Date()
+
+  if (normalizedPeriod === '1m') {
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+    const orders = await Order.find({ event: { $in: eventIds }, status: 'paid', createdAt: { $gte: monthStart } })
+      .select('organizerEarnings createdAt')
+      .lean()
+
+    const weekCount = Math.ceil((now.getDate() + new Date(now.getFullYear(), now.getMonth(), 1).getDay()) / 7)
+    const buckets = Array.from({ length: weekCount }, (_, i) => ({ label: `W${i + 1}`, amount: 0 }))
+
+    for (const order of orders) {
+      const dayOfMonth = new Date(order.createdAt).getDate()
+      const weekIndex = Math.min(Math.floor((dayOfMonth - 1) / 7), buckets.length - 1)
+      buckets[weekIndex].amount += order.organizerEarnings
+    }
+    return buckets
+  }
+
+  const days = normalizedPeriod === '7d' ? 7 : 30
+  const startDate = new Date(now)
+  startDate.setDate(startDate.getDate() - (days - 1))
+  startDate.setHours(0, 0, 0, 0)
+
+  const orders = await Order.find({ event: { $in: eventIds }, status: 'paid', createdAt: { $gte: startDate } })
+    .select('organizerEarnings createdAt')
+    .lean()
+
+  const buckets = new Map<string, number>()
+  for (let i = 0; i < days; i++) {
+    const d = new Date(startDate)
+    d.setDate(d.getDate() + i)
+    buckets.set(d.toISOString().slice(0, 10), 0)
+  }
+  for (const order of orders) {
+    const key = new Date(order.createdAt).toISOString().slice(0, 10)
+    if (buckets.has(key)) buckets.set(key, (buckets.get(key) ?? 0) + order.organizerEarnings)
+  }
+
+  return Array.from(buckets.entries()).map(([date, amount]) => ({ label: date, amount }))
+}
+
+/**
+ * "Tickets by type" donut — paid ticket tiers only (Regular/VIP/Table
+ * etc). Free-event RSVPs have no ticketType to break down by, and mixing
+ * them in would just add a meaningless "Free" wedge to what's meant to
+ * show ticket-tier mix.
+ */
+async function buildTicketsByType(
+  eventIds: mongoose.Types.ObjectId[]
+): Promise<{ name: string; count: number; percentage: number }[]> {
+  const rows = await Ticket.aggregate([
+    { $match: { event: { $in: eventIds }, type: 'paid', status: { $ne: 'cancelled' } } },
+    { $group: { _id: '$ticketType', count: { $sum: 1 } } },
+    { $lookup: { from: 'ticket_types', localField: '_id', foreignField: '_id', as: 'ticketType' } },
+    { $unwind: { path: '$ticketType', preserveNullAndEmptyArrays: true } },
+    { $project: { name: { $ifNull: ['$ticketType.name', 'Other'] }, count: 1 } },
+    { $sort: { count: -1 } },
+  ])
+
+  const total = rows.reduce((sum, row) => sum + row.count, 0)
+  if (total === 0) return []
+
+  return rows.map(row => ({ name: row.name, count: row.count, percentage: Math.round((row.count / total) * 100) }))
+}
+
 export const getOrganizerOverview = tryCatchWrapper(async (req: Request, res: Response) => {
   const events = await Event.find({ organizer: req.session.userId })
     .select('title slug coverImage type status startDate endDate capacity ticketsSoldCount reservationsCount revenueTotal category')
@@ -260,6 +339,9 @@ export const getOrganizerOverview = tryCatchWrapper(async (req: Request, res: Re
   const percentChange = (current: number, previous: number): number | null =>
     previous > 0 ? Math.round(((current - previous) / previous) * 100) : null
 
+  const revenueSeries = await buildRevenueSeries(eventIds, (req.query.period as string) ?? '30d')
+  const ticketsByType = await buildTicketsByType(eventIds)
+
   return sendTsRestSuccess(res, 200, {
     success: true,
     message: 'Overview fetched',
@@ -272,6 +354,8 @@ export const getOrganizerOverview = tryCatchWrapper(async (req: Request, res: Re
       payoutDue,
       nextPayoutInDays,
       recentEvents,
+      revenueSeries,
+      ticketsByType,
     },
   })
 })

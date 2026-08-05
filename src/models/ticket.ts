@@ -3,7 +3,7 @@ import mongoose, { Document, Schema } from 'mongoose'
 export interface ITicket extends Document {
   _id: mongoose.Types.ObjectId
   event: mongoose.Types.ObjectId
-  attendee: mongoose.Types.ObjectId
+  attendee?: mongoose.Types.ObjectId
   ticketType?: mongoose.Types.ObjectId
   order?: mongoose.Types.ObjectId
   code: string
@@ -27,10 +27,13 @@ const TicketSchema = new Schema<ITicket>(
       ref: 'Event',
       required: true,
     },
+    // Absent for a guest ticket (bought/reserved without an account) — see
+    // resolveAttendeeInfo in lib/attendee.ts. attendeeName/attendeeEmail
+    // below are always set regardless, so a guest ticket is fully usable
+    // without this field.
     attendee: {
       type: Schema.Types.ObjectId,
       ref: 'User',
-      required: true,
     },
     // Absent for free-event reservations (no ticket types on free events).
     ticketType: {
@@ -103,6 +106,9 @@ const TicketSchema = new Schema<ITicket>(
 TicketSchema.index({ event: 1, status: 1 })
 TicketSchema.index({ attendee: 1, createdAt: -1 })
 TicketSchema.index({ order: 1 })
+// Powers guest ticket lookup (no `attendee` to query by) — see
+// listGuestTickets in ticket.controller.ts.
+TicketSchema.index({ attendeeEmail: 1, createdAt: -1 })
 
 const Ticket = mongoose.models.Ticket || mongoose.model<ITicket>('Ticket', TicketSchema, 'tickets')
 

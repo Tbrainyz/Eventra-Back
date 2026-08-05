@@ -5,7 +5,7 @@ import Event from '../models/event.js'
 import { IOrder } from '../models/order.js'
 import Ticket, { ITicket } from '../models/ticket.js'
 import TicketType from '../models/ticketType.js'
-import { IUser } from '../models/user.js'
+import { AttendeeInfo } from '../lib/attendee.js'
 import { EmailService } from './email.service.js'
 
 const formatEventDateLabel = (date: Date): string =>
@@ -31,7 +31,7 @@ export class TicketService {
    * reasoning as issueTicketsForPaidOrder below — partial success would
    * mean tickets that don't actually correspond to a held reservation.
    */
-  static async rsvpToFreeEvent(eventId: string, user: IUser, guests = 1): Promise<ITicket[]> {
+  static async rsvpToFreeEvent(eventId: string, attendee: AttendeeInfo, guests = 1): Promise<ITicket[]> {
     const session = await mongoose.startSession()
     let issuedTickets: ITicket[] = []
     let eventSnapshot: { _id: mongoose.Types.ObjectId; title: string; startDate: Date; venue: { name: string; city: string } } | null = null
@@ -69,12 +69,12 @@ export class TicketService {
         issuedTickets = await Ticket.create(
           Array.from({ length: guests }, () => ({
             event: updatedEvent._id,
-            attendee: user._id,
+            attendee: attendee.userId,
             code: this.generateTicketCode(),
             type: 'free' as const,
             price: 0,
-            attendeeName: user.fullname,
-            attendeeEmail: user.email,
+            attendeeName: attendee.fullname,
+            attendeeEmail: attendee.email,
             status: 'valid' as const,
           })),
           { session, ordered: true }
@@ -87,7 +87,7 @@ export class TicketService {
     if (eventSnapshot) {
       const evt = eventSnapshot as { title: string; startDate: Date; venue: { name: string; city: string } }
       EmailService.sendTicketConfirmationEmail({
-        user,
+        user: attendee,
         eventTitle: evt.title,
         eventDateLabel: formatEventDateLabel(evt.startDate),
         venueLabel: formatVenueLabel(evt.venue),
@@ -103,7 +103,7 @@ export class TicketService {
    * Runs inside a transaction: ticket-type stock decrement, ticket creation, and
    * event/order totals must all succeed together or not at all.
    */
-  static async issueTicketsForPaidOrder(order: IOrder, attendee: IUser): Promise<ITicket[]> {
+  static async issueTicketsForPaidOrder(order: IOrder, attendee: AttendeeInfo): Promise<ITicket[]> {
     const session = await mongoose.startSession()
     let issuedTickets: ITicket[] = []
 
@@ -129,7 +129,7 @@ export class TicketService {
 
           const ticketsForItem = Array.from({ length: item.quantity }).map(() => ({
             event: order.event,
-            attendee: attendee._id,
+            attendee: attendee.userId,
             ticketType: item.ticketType,
             order: order._id,
             code: this.generateTicketCode(),

@@ -412,6 +412,26 @@ export const resetPasswordTemplate = (name: string, code: string) =>
   )
 
 /**
+ * For someone who checked out or RSVP'd as a guest (no account) and wants
+ * to view/manage their ticket later. No name to greet them by here — a
+ * guest's name lives on the ticket, not anywhere this template has access
+ * to before the code is even verified — so this keeps the greeting generic.
+ */
+export const guestTicketAccessTemplate = (code: string) =>
+  baseLayout(
+    'Access your tickets 🎟️',
+    'there',
+    `
+      Someone requested access to the Eventra ticket(s) linked to this email address.
+      Enter this code to view and manage them — if this wasn't you, you can safely ignore this email.
+    `,
+    undefined,
+    undefined,
+    'This code expires in 15 minutes.',
+    code
+  )
+
+/**
  * Redesigned as an actual ticket stub (dark green "boarding pass" header +
  * perforated tear + light counterfoil listing each code) rather than plain
  * text lines — matches the in-app ticket-card.tsx look. QR codes still

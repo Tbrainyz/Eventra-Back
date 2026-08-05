@@ -2,6 +2,7 @@ import sendEmail from '../email/send-email.js'
 import {
   eventApprovedTemplate,
   eventRejectedTemplate,
+  guestTicketAccessTemplate,
   organizerApprovedTemplate,
   organizerRejectedTemplate,
   refundProcessedTemplate,
@@ -66,6 +67,35 @@ export class EmailService {
     await EmailQueue.create({
       to: user.email,
       subject: 'Reset your password - Eventra',
+      html: htmlBody,
+      priority: 'high',
+      status: 'queued',
+      retryCount: 0,
+      nextRetryAt: new Date(Date.now() + 5 * 60 * 1000),
+    })
+    return { success: false, queued: true }
+  }
+
+  /**
+   * Sends the OTP for the "track my ticket by email" flow — same shape as
+   * sendPasswordResetEmail, but for someone who never had an account to
+   * reset a password on in the first place.
+   */
+  static async sendGuestTicketAccessEmail({ email, otp }: { email: string; otp: string }): Promise<{ success: boolean; queued: boolean }> {
+    const htmlBody = guestTicketAccessTemplate(otp)
+    const subject = 'Access your Eventra tickets'
+    const result = await sendEmail({
+      email,
+      subject,
+      message: htmlBody,
+    })
+    if (result.success) {
+      return { success: true, queued: false }
+    }
+
+    await EmailQueue.create({
+      to: email,
+      subject,
       html: htmlBody,
       priority: 'high',
       status: 'queued',

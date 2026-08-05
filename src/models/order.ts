@@ -9,7 +9,12 @@ export interface IOrderItem {
 export interface IOrder extends Document {
   _id: mongoose.Types.ObjectId
   event: mongoose.Types.ObjectId
-  buyer: mongoose.Types.ObjectId
+  buyer?: mongoose.Types.ObjectId
+  // Set instead of `buyer` for a guest checkout (no account). Always one
+  // or the other — enforced by the pre-validate hook below.
+  guestName?: string
+  guestEmail?: string
+  guestPhone?: string
   items: IOrderItem[]
   subtotal: number
   platformFee: number
@@ -59,7 +64,19 @@ const OrderSchema = new Schema<IOrder>(
     buyer: {
       type: Schema.Types.ObjectId,
       ref: 'User',
-      required: true,
+    },
+    guestName: {
+      type: String,
+      trim: true,
+    },
+    guestEmail: {
+      type: String,
+      trim: true,
+      lowercase: true,
+    },
+    guestPhone: {
+      type: String,
+      trim: true,
     },
     items: {
       type: [OrderItemSchema],
@@ -142,9 +159,21 @@ export const calculateOrderTotals = (items: IOrderItem[]) => {
 }
 
 
+OrderSchema.pre('validate', function (next) {
+  if (!this.buyer && !this.guestEmail) {
+    next(new Error('Order must have either a buyer or guest contact details'))
+    return
+  }
+  next()
+})
+
 OrderSchema.index({ buyer: 1, createdAt: -1 })
 OrderSchema.index({ event: 1, status: 1 })
 OrderSchema.index({ status: 1, payoutStatus: 1 })
+// Powers guest order lookup (getOrderByReference has no buyer to filter by
+// for a guest — reference + this index is enough for the checkout-callback
+// polling case, and paystackReference already has its own unique index).
+OrderSchema.index({ guestEmail: 1, createdAt: -1 })
 
 const Order = mongoose.models.Order || mongoose.model<IOrder>('Order', OrderSchema, 'orders')
 
