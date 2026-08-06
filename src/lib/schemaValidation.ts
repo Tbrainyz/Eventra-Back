@@ -86,7 +86,11 @@ const venueSchema = z.object({
 
 export const lineupMemberSchema = z.object({
   name: z.string().trim().min(1, 'name is required'),
-  role: z.string().trim().min(1, 'role is required'),
+  // Optional — the event-creation wizard's Line-Up step only collects an
+  // act/session name, no separate role. The dedicated lineup editor
+  // (organizer/events/:id/lineup) still lets an organizer add a role
+  // afterward for acts that want one billed.
+  role: z.string().trim().optional(),
   imageUrl: z.string().trim().url().optional(),
 })
 
@@ -95,13 +99,23 @@ export const updateEventLineupSchema = z.object({
 })
 
 export const createEventSchema = z.object({
-  title: z.string().trim().min(3, 'Title must be at least 3 characters'),
-  description: z.string().trim().min(10, 'Description must be at least 10 characters'),
-  category: z.string().trim().min(1, 'category is required'),
+  // Only `type` is required to create a draft — the wizard creates the
+  // event as soon as Step 1 (Type) is chosen, then fills the rest in via
+  // updateEvent across the remaining steps. Same pattern as
+  // organizerProfileSchema/submitOrganizerProfileForReview: everything
+  // else is validated for real at submitEventForApproval, not here.
   type: z.enum(['free', 'paid']),
+  title: z.string().trim().min(3, 'Title must be at least 3 characters').optional(),
+  description: z.string().trim().min(10, 'Description must be at least 10 characters').optional(),
+  category: z.string().trim().min(1, 'category is required').optional(),
   coverImage: z.string().trim().url().optional(),
-  venue: venueSchema,
-  startDate: z.coerce.date(),
+  // Physical venue — required unless isOnline is true. See the isOnline
+  // fields below for the online-event alternative.
+  venue: venueSchema.optional(),
+  isOnline: z.boolean().optional(),
+  onlinePlatform: z.string().trim().optional(),
+  onlineJoinLink: z.string().trim().url().optional(),
+  startDate: z.coerce.date().optional(),
   endDate: z.coerce.date().optional(),
   capacity: z.number().int().positive().optional(),
   refundPolicy: z
@@ -114,6 +128,8 @@ export const createEventSchema = z.object({
   // lineup each time rather than individual add/remove diffs. Simpler
   // contract, and Mongo assigns fresh _ids to any new entries regardless.
   lineup: z.array(lineupMemberSchema).max(30, 'Lineup can have at most 30 entries').optional(),
+  gallery: z.array(z.string().trim().url()).max(20, 'Gallery can have at most 20 photos').optional(),
+  agePolicy: z.string().trim().optional(),
 })
 
 export const updateEventSchema = createEventSchema.partial()

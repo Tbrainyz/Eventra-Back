@@ -5,6 +5,7 @@ import {
   deleteEvent,
   getEventBySlug,
   getEventDashboard,
+  getMyEventById,
   listMyEvents,
   listPublicEvents,
   postponeEvent,
@@ -33,6 +34,7 @@ router.use('/:eventId/ticket-types', ticketTypeRoutes)
 
 router.get('/', listPublicEvents)
 router.get('/mine', verifySession, requireRole('organizer'), listMyEvents)
+router.get('/mine/:id', verifySession, requireRole('organizer'), getMyEventById)
 
 router.post('/', verifySession, requireRole('organizer'), validateFormData(createEventSchema), createEvent)
 router.patch('/:id', verifySession, requireRole('organizer'), validateFormData(updateEventSchema), updateEvent)

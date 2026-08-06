@@ -15,7 +15,7 @@ export interface IRefundPolicy {
 export interface IEventLineupMember {
   _id: mongoose.Types.ObjectId
   name: string
-  role: string
+  role?: string
   imageUrl?: string
 }
 
@@ -31,14 +31,24 @@ export interface IEventPromotion {
 export interface IEvent extends Document {
   _id: mongoose.Types.ObjectId
   organizer: mongoose.Types.ObjectId
-  title: string
+  // Only `type` is guaranteed to be set on a fresh draft — the rest fill
+  // in progressively as the create-event wizard's steps are completed.
+  // submitEventForApproval is what actually enforces these being present
+  // before an event can go live, not the schema itself.
+  title?: string
   slug: string
-  description: string
-  category: mongoose.Types.ObjectId
+  description?: string
+  category?: mongoose.Types.ObjectId
   type: 'free' | 'paid'
   coverImage?: string
-  venue: IEventVenue
-  startDate: Date
+  // Physical venue — absent when isOnline is true.
+  venue?: IEventVenue
+  isOnline: boolean
+  onlinePlatform?: string
+  // Deliberately never exposed on the public event API response before
+  // someone has RSVP'd/bought — see getEventBySlug's response shaping.
+  onlineJoinLink?: string
+  startDate?: Date
   endDate?: Date
   capacity?: number
   refundPolicy?: IRefundPolicy
@@ -46,6 +56,12 @@ export interface IEvent extends Document {
   // the public event page, entirely organizer-managed. Order in the array
   // is display order (headliners first).
   lineup: IEventLineupMember[]
+  gallery: string[]
+  // Free text on purpose (e.g. "All Ages", "18+") rather than an enum —
+  // the wizard's dropdown offers common presets but organizers in
+  // different event categories phrase this differently enough that a
+  // fixed enum would fight them.
+  agePolicy?: string
   status: 'draft' | 'pending_approval' | 'approved' | 'rejected' | 'cancelled' | 'postponed'
   rejectionReason?: string
   isPromoted: boolean
@@ -101,7 +117,7 @@ const EventPromotionSchema = new Schema<IEventPromotion>(
 
 const LineupMemberSchema = new Schema<IEventLineupMember>({
   name: { type: String, required: true, trim: true },
-  role: { type: String, required: true, trim: true },
+  role: { type: String, trim: true },
   imageUrl: { type: String, trim: true },
 })
 
@@ -114,7 +130,6 @@ const EventSchema = new Schema<IEvent>(
     },
     title: {
       type: String,
-      required: true,
       trim: true,
     },
     slug: {
@@ -126,12 +141,10 @@ const EventSchema = new Schema<IEvent>(
     },
     description: {
       type: String,
-      required: true,
     },
     category: {
       type: Schema.Types.ObjectId,
       ref: 'Category',
-      required: true,
     },
     type: {
       type: String,
@@ -144,11 +157,24 @@ const EventSchema = new Schema<IEvent>(
     },
     venue: {
       type: EventVenueSchema,
-      required: true,
+      required: function (this: IEvent) {
+        return !this.isOnline
+      },
+    },
+    isOnline: {
+      type: Boolean,
+      default: false,
+    },
+    onlinePlatform: {
+      type: String,
+      trim: true,
+    },
+    onlineJoinLink: {
+      type: String,
+      trim: true,
     },
     startDate: {
       type: Date,
-      required: true,
     },
     endDate: {
       type: Date,
@@ -163,6 +189,14 @@ const EventSchema = new Schema<IEvent>(
     lineup: {
       type: [LineupMemberSchema],
       default: [],
+    },
+    gallery: {
+      type: [String],
+      default: [],
+    },
+    agePolicy: {
+      type: String,
+      trim: true,
     },
     status: {
       type: String,

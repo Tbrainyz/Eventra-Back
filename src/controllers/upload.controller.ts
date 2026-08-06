@@ -41,3 +41,23 @@ export const uploadLineupPhoto = tryCatchWrapper(async (req: Request, res: Respo
     return sendTsRestError(res, 502, error.message || 'Image upload failed')
   }
 })
+
+// Same 16:9-friendly transform as the cover image, not the avatar crop —
+// gallery photos display as a grid of full images, not headshots.
+export const uploadGalleryPhoto = tryCatchWrapper(async (req: Request, res: Response) => {
+  if (!req.file) {
+    return sendTsRestError(res, 400, 'No image file provided (expected field name "image")')
+  }
+
+  try {
+    const uploaded = await CloudinaryService.uploadImage(req.file.buffer, 'event-gallery')
+
+    return sendTsRestSuccess(res, 201, {
+      success: true,
+      message: 'Image uploaded',
+      body: uploaded,
+    })
+  } catch (error: any) {
+    return sendTsRestError(res, 502, error.message || 'Image upload failed')
+  }
+})

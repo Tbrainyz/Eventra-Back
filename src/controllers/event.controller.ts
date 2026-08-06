@@ -16,16 +16,25 @@ const EDITABLE_STATUSES = ['draft', 'rejected']
 export const createEvent = tryCatchWrapper(async (req: Request, res: Response) => {
   const { category: categoryId, ...rest } = req.body
 
-  const category = await Category.findOne({ _id: categoryId, isActive: true })
-  if (!category) {
-    return sendTsRestError(res, 400, 'Invalid or inactive category')
+  // Only validated when provided — the wizard creates the draft right
+  // after Step 1 (Type only), well before Step 2 collects a category.
+  let category = null
+  if (categoryId) {
+    category = await Category.findOne({ _id: categoryId, isActive: true })
+    if (!category) {
+      return sendTsRestError(res, 400, 'Invalid or inactive category')
+    }
   }
 
-  const slug = `${slugify(rest.title)}-${crypto.randomBytes(3).toString('hex')}`
+  // Untitled drafts still need a unique slug to satisfy the schema — this
+  // gets replaced with a proper title-based one the moment a title is set
+  // (see updateEvent below), so it's never the slug a published event
+  // actually ends up with.
+  const slug = `${rest.title ? slugify(rest.title) : 'untitled-event'}-${crypto.randomBytes(3).toString('hex')}`
 
   const event = await Event.create({
     ...rest,
-    category: category._id,
+    ...(category ? { category: category._id } : {}),
     slug,
     organizer: req.session.userId,
     status: 'draft',
@@ -60,6 +69,14 @@ export const updateEvent = tryCatchWrapper(async (req: Request, res: Response) =
   }
 
   Object.assign(event, rest)
+
+  // Only while still 'draft' — a rejected event being fixed already has a
+  // slug that may have been shared/seen, so editing it further shouldn't
+  // change the URL out from under anyone.
+  if (rest.title && event.status === 'draft') {
+    event.slug = `${slugify(rest.title)}-${crypto.randomBytes(3).toString('hex')}`
+  }
+
   await event.save()
 
   return sendTsRestSuccess(res, 200, {
@@ -109,12 +126,29 @@ export const submitEventForApproval = tryCatchWrapper(async (req: Request, res: 
     return sendTsRestError(res, 400, 'This event has already been submitted')
   }
 
+  // Every field the wizard collects across its steps used to be required
+  // by the Zod schema at creation time — now that a draft can be created
+  // with just `type` (see createEventSchema), completeness is enforced
+  // here instead, at the point it actually needs to be true.
+  const missing: string[] = []
+  if (!event.title) missing.push('Event name')
+  if (!event.description) missing.push('Description')
+  if (!event.category) missing.push('Category')
+  if (!event.startDate) missing.push('Date & time')
+  if (event.isOnline ? !event.onlineJoinLink : !event.venue) missing.push(event.isOnline ? 'Join link' : 'Venue')
+  if (missing.length > 0) {
+    return sendTsRestError(res, 400, `Finish these before submitting: ${missing.join(', ')}`)
+  }
+
   const organizer = await User.findById(req.session.userId)
-  if (!organizer || organizer.organizerProfile?.approvalStatus !== 'approved') {
-    return sendTsRestError(res, 403, 'Your organizer account must be approved before publishing events')
+  if (!organizer) {
+    return sendTsRestError(res, 404, 'Organizer not found')
   }
 
   if (event.type === 'paid') {
+    if (organizer.organizerProfile?.approvalStatus !== 'approved') {
+      return sendTsRestError(res, 403, 'Your organizer account must be approved before publishing a paid event')
+    }
     const hasBankDetails = organizer.organizerProfile?.accountNumber && organizer.organizerProfile?.bankCode
     if (!hasBankDetails) {
       return sendTsRestError(res, 400, 'Add your bank account details before publishing a paid event')
@@ -123,15 +157,30 @@ export const submitEventForApproval = tryCatchWrapper(async (req: Request, res: 
     if (ticketTypeCount === 0) {
       return sendTsRestError(res, 400, 'Add at least one ticket type before submitting a paid event')
     }
+
+    event.status = 'pending_approval'
+    event.rejectionReason = undefined
+    await event.save()
+
+    return sendTsRestSuccess(res, 200, {
+      success: true,
+      message: 'Event submitted for admin approval',
+      body: event.toObject(),
+    })
   }
 
-  event.status = 'pending_approval'
+  // Free events skip organizer-approval and admin review entirely — "Free
+  // events can go live now, paid events unlock once you're verified" is
+  // the actual promise made on the dashboard banner, so this has to be
+  // true regardless of the organizer's own approvalStatus.
+  event.status = 'approved'
   event.rejectionReason = undefined
+  event.publishedAt = new Date()
   await event.save()
 
   return sendTsRestSuccess(res, 200, {
     success: true,
-    message: 'Event submitted for admin approval',
+    message: 'Your event is live',
     body: event.toObject(),
   })
 })
@@ -161,7 +210,7 @@ export const listMyEvents = tryCatchWrapper(async (req: Request, res: Response) 
   const filter = { organizer: req.session.userId }
 
   const [events, total] = await Promise.all([
-    Event.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+    Event.find(filter).populate('category', 'name').sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
     Event.countDocuments(filter),
   ])
 
@@ -249,32 +298,54 @@ export const listPublicEvents = tryCatchWrapper(async (req: Request, res: Respon
 
 export const getEventDashboard = tryCatchWrapper(async (req: Request, res: Response) => {
   const { id } = req.params
-  const event = await Event.findOne({ _id: id, organizer: req.session.userId }).lean()
+  const event = await Event.findOne({ _id: id, organizer: req.session.userId }).populate('category', 'name').lean()
   if (!event) {
     return sendTsRestError(res, 404, 'Event not found')
   }
 
-  const ticketTypes =
+  const [ticketTypes, checkedInCount, recentAttendees] = await Promise.all([
     event.type === 'paid'
-      ? await TicketType.find({ event: event._id })
-          .select('name price quantity quantitySold purchaseLimitPerPerson isActive')
-          .lean()
-      : []
+      ? TicketType.find({ event: event._id }).select('name price quantity quantitySold purchaseLimitPerPerson isActive').lean()
+      : Promise.resolve([]),
+    Ticket.countDocuments({ event: event._id, status: 'checked_in' }),
+    Ticket.find({ event: event._id })
+      .select('attendeeName code type status ticketType')
+      .populate('ticketType', 'name')
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .lean(),
+  ])
 
   const body = {
     event: {
       _id: event._id,
       title: event.title,
+      slug: event.slug,
+      description: event.description,
       status: event.status,
       type: event.type,
+      category: (event.category as any)?.name,
+      coverImage: event.coverImage,
       startDate: event.startDate,
+      isOnline: event.isOnline,
+      venue: event.venue,
       lineup: event.lineup,
+      isPromoted: event.isPromoted,
+      promotionStatus: event.promotion?.status,
     },
     reservationsCount: event.reservationsCount,
     capacity: event.capacity ?? null,
     capacityRemaining: event.capacity ? Math.max(event.capacity - event.reservationsCount, 0) : null,
     ticketsSoldCount: event.ticketsSoldCount,
     revenueTotal: event.revenueTotal,
+    checkedInCount,
+    recentAttendees: recentAttendees.map(t => ({
+      _id: t._id,
+      attendeeName: t.attendeeName,
+      code: t.code,
+      status: t.status,
+      ticketTypeName: t.type === 'free' ? 'RSVP' : ((t.ticketType as any)?.name ?? 'General'),
+    })),
     ticketTypes: ticketTypes.map(tt => ({
       ...tt,
       quantityRemaining: Math.max(tt.quantity - tt.quantitySold, 0),
@@ -289,6 +360,26 @@ export const getEventDashboard = tryCatchWrapper(async (req: Request, res: Respo
     success: true,
     message: 'Dashboard fetched',
     body,
+  })
+})
+
+/**
+ * Fetches the raw, full-fidelity event document (every field, no computed
+ * stats) — used by the create/edit wizard to resume a draft. Deliberately
+ * separate from getEventDashboard above: that endpoint returns a
+ * stats-shaped view for the event-detail page, not a form-fillable one.
+ */
+export const getMyEventById = tryCatchWrapper(async (req: Request, res: Response) => {
+  const { id } = req.params
+  const event = await Event.findOne({ _id: id, organizer: req.session.userId }).lean()
+  if (!event) {
+    return sendTsRestError(res, 404, 'Event not found')
+  }
+
+  return sendTsRestSuccess(res, 200, {
+    success: true,
+    message: 'Event fetched',
+    body: event,
   })
 })
 
