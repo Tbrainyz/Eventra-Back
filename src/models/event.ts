@@ -157,9 +157,6 @@ const EventSchema = new Schema<IEvent>(
     },
     venue: {
       type: EventVenueSchema,
-      required: function (this: IEvent) {
-        return !this.isOnline
-      },
     },
     isOnline: {
       type: Boolean,
