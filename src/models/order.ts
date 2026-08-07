@@ -159,12 +159,10 @@ export const calculateOrderTotals = (items: IOrderItem[]) => {
 }
 
 
-OrderSchema.pre('validate', function (next) {
+OrderSchema.pre('validate', function (this: IOrder) {
   if (!this.buyer && !this.guestEmail) {
-    next(new Error('Order must have either a buyer or guest contact details'))
-    return
+    throw new Error('Order must have either a buyer or guest contact details')
   }
-  next()
 })
 
 OrderSchema.index({ buyer: 1, createdAt: -1 })

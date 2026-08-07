@@ -156,7 +156,7 @@ export const updateCategorySchema = z.object({
 })
 
 export const rejectEventSchema = z.object({
-  reason: z.string().trim().min(3, 'Rejection reason is required'),
+  reason: z.string().trim().min(3, 'A rejection reason is required'),
 })
 
 export const rsvpSchema = z.object({
