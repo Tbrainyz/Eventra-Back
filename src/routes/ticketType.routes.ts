@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { createTicketType, listTicketTypesForOrganizer, updateTicketType } from '../controllers/ticketType.controller.js'
+import { createTicketType, deleteTicketType, listTicketTypesForOrganizer, updateTicketType } from '../controllers/ticketType.controller.js'
 import { verifySession, requireRole } from '../middlewares/auth.middleware.js'
 import { validateFormData } from '../middlewares/schema.middleware.js'
 import { createTicketTypeSchema, updateTicketTypeSchema } from '../lib/schemaValidation.js'
@@ -12,5 +12,6 @@ router.use(verifySession, requireRole('organizer'))
 router.post('/', validateFormData(createTicketTypeSchema), createTicketType)
 router.get('/', listTicketTypesForOrganizer)
 router.patch('/:ticketTypeId', validateFormData(updateTicketTypeSchema), updateTicketType)
+router.delete('/:ticketTypeId', deleteTicketType)
 
 export default router

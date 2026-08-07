@@ -84,3 +84,31 @@ export const updateTicketType = tryCatchWrapper(async (req: Request, res: Respon
     body: ticketType.toObject(),
   })
 })
+
+// Only while nothing's sold — a ticket type with real sales has tickets
+// and order line items pointing at it, so removing it outright would
+// orphan those records. Once anything's sold, deactivate it instead (see
+// updateTicketType's isActive field) rather than delete.
+export const deleteTicketType = tryCatchWrapper(async (req: Request, res: Response) => {
+  const { eventId, ticketTypeId } = req.params
+  const { event, error } = await getOwnedPaidEvent(eventId as string, req.session.userId!)
+  if (!event) {
+    return sendTsRestError(res, 404, error!)
+  }
+
+  const ticketType = await TicketType.findOne({ _id: ticketTypeId, event: event._id })
+  if (!ticketType) {
+    return sendTsRestError(res, 404, 'Ticket type not found')
+  }
+  if (ticketType.quantitySold > 0) {
+    return sendTsRestError(res, 400, 'This ticket type already has sales — deactivate it instead of deleting it')
+  }
+
+  await ticketType.deleteOne()
+  await syncEventMinPrice(event._id.toString())
+
+  return sendTsRestSuccess<undefined>(res, 200, {
+    success: true,
+    message: 'Ticket type deleted',
+  })
+})
