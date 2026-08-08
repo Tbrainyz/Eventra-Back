@@ -72,6 +72,13 @@ export const organizerProfileSchema = z.object({
   agreedToTerms: z.boolean().optional(),
 })
 
+export const organizerNotificationPreferencesSchema = z.object({
+  newSalesRsvps: z.boolean().optional(),
+  dailySalesSummary: z.boolean().optional(),
+  payoutConfirmations: z.boolean().optional(),
+  eventApprovals: z.boolean().optional(),
+})
+
 export const resolveBankAccountSchema = z.object({
   accountNumber: z.string().trim().min(10).max(10),
   bankCode: z.string().trim().min(2),

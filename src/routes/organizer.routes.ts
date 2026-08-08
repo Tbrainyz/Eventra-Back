@@ -1,16 +1,18 @@
 import { Router } from 'express'
 import {
+  getOrganizerNotificationPreferences,
   getOrganizerOverview,
   getOrganizerProfile,
   listBanks,
   listOrganizerPayouts,
   resolveBankAccount,
   submitOrganizerProfileForReview,
+  updateOrganizerNotificationPreferences,
   upsertOrganizerProfile,
 } from '../controllers/organizer.controller.js'
 import { verifySession } from '../middlewares/auth.middleware.js'
 import { validateFormData } from '../middlewares/schema.middleware.js'
-import { organizerProfileSchema, resolveBankAccountSchema } from '../lib/schemaValidation.js'
+import { organizerNotificationPreferencesSchema, organizerProfileSchema, resolveBankAccountSchema } from '../lib/schemaValidation.js'
 
 const router = Router()
 
@@ -23,5 +25,11 @@ router.get('/banks', listBanks)
 router.post('/resolve-account', validateFormData(resolveBankAccountSchema), resolveBankAccount)
 router.get('/overview', getOrganizerOverview)
 router.get('/payouts', listOrganizerPayouts)
+router.get('/notification-preferences', getOrganizerNotificationPreferences)
+router.patch(
+  '/notification-preferences',
+  validateFormData(organizerNotificationPreferencesSchema),
+  updateOrganizerNotificationPreferences
+)
 
 export default router

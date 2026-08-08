@@ -18,6 +18,57 @@ export const listPromotionPackages = tryCatchWrapper(async (req: Request, res: R
   })
 })
 
+const PROMOTION_STATUS_LABEL: Record<string, string> = {
+  pending: 'Pending review',
+  approved: 'Active',
+  rejected: 'Rejected',
+  expired: 'Expired',
+}
+
+/**
+ * Powers the "Your Promotion" table on the Promotions page — every event
+ * belonging to this organizer that has (or has had) a promotion attached.
+ * Each event only ever holds one `promotion` record at a time (see
+ * IEventPromotion on the Event model), so this is one row per event, most
+ * recent first — not a full history of past promotion requests.
+ */
+export const listMyPromotions = tryCatchWrapper(async (req: Request, res: Response) => {
+  const events = await Event.find({ organizer: req.session.userId, promotion: { $exists: true } })
+    .select('title promotion')
+    .sort({ 'promotion.paidAt': -1, 'promotion.startsAt': -1 })
+    .lean()
+
+  const now = new Date()
+
+  const promotions = events.map(event => {
+    const promotion = event.promotion!
+    const pkg = getPromotionPackage(promotion.package)
+    const isExpired = promotion.status === 'approved' && !!promotion.endsAt && new Date(promotion.endsAt) < now
+    const statusKey = isExpired ? 'expired' : promotion.status
+
+    return {
+      eventId: event._id,
+      eventTitle: event.title,
+      packageId: promotion.package,
+      packageLabel: pkg?.label ?? promotion.package,
+      placementLabel: pkg?.placementLabel,
+      priceNaira: pkg?.priceNaira ?? null,
+      startsAt: promotion.startsAt ?? null,
+      endsAt: promotion.endsAt ?? null,
+      status: statusKey,
+      statusLabel: PROMOTION_STATUS_LABEL[statusKey] ?? statusKey,
+      paystackReference: promotion.paystackReference,
+      paid: Boolean(promotion.paidAt),
+    }
+  })
+
+  return sendTsRestSuccess(res, 200, {
+    success: true,
+    message: 'Promotions fetched',
+    body: promotions,
+  })
+})
+
 /**
  * Organizer requests to promote their (already-approved) event. Payment is
  * collected first; an admin still has to approve the promotion afterwards

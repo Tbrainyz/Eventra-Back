@@ -2,7 +2,7 @@ import { Request, Response } from 'express'
 import mongoose from 'mongoose'
 import { sendTsRestError, sendTsRestSuccess } from '../lib/responseHandler.js'
 import tryCatchWrapper from '../lib/tryCatchWrapper.js'
-import { buildPaginationMeta, getPagination, sanitizeUser } from '../lib/utils.js'
+import { sanitizeUser } from '../lib/utils.js'
 import Event from '../models/event.js'
 import Order from '../models/order.js'
 import Ticket from '../models/ticket.js'
@@ -128,6 +128,36 @@ export const getOrganizerProfile = tryCatchWrapper(async (req: Request, res: Res
     success: true,
     message: 'Organizer profile fetched',
     body: user.organizerProfile ?? null,
+  })
+})
+
+/** Powers the toggles on the organizer dashboard's Settings page. */
+export const getOrganizerNotificationPreferences = tryCatchWrapper(async (req: Request, res: Response) => {
+  const user = await User.findById(req.session.userId).select('organizerNotificationPreferences').lean()
+  if (!user) {
+    return sendTsRestError(res, 404, 'User not found')
+  }
+
+  return sendTsRestSuccess(res, 200, {
+    success: true,
+    message: 'Notification preferences fetched',
+    body: user.organizerNotificationPreferences,
+  })
+})
+
+export const updateOrganizerNotificationPreferences = tryCatchWrapper(async (req: Request, res: Response) => {
+  const user = await User.findById(req.session.userId)
+  if (!user) {
+    return sendTsRestError(res, 404, 'User not found')
+  }
+
+  user.organizerNotificationPreferences = { ...user.organizerNotificationPreferences, ...req.body }
+  await user.save()
+
+  return sendTsRestSuccess(res, 200, {
+    success: true,
+    message: 'Notification preferences updated',
+    body: user.organizerNotificationPreferences,
   })
 })
 
@@ -360,35 +390,105 @@ export const getOrganizerOverview = tryCatchWrapper(async (req: Request, res: Re
   })
 })
 
+// Worse-to-better ordering — an event's row on the Payouts page shows the
+// least-advanced status among its orders, since "Ready" would be
+// misleading if even one order's earnings are still held.
+const PAYOUT_STATUS_RANK: Record<string, number> = { not_due: 0, pending: 0, processing: 1, paid: 2 }
+const EVENT_ROW_STATUS: Record<number, string> = { 0: 'held', 1: 'ready', 2: 'paid' }
+
+/**
+ * "Earning by event" table on the Payouts page — gross sales, the
+ * platform's 5% commission, and what's actually owed to the organizer,
+ * per event. Free events never generate an Order, so they're listed
+ * separately with a 'free_no_payout' status rather than omitted.
+ */
+async function buildEarningsByEvent(organizerId: string) {
+  const events = await Event.find({ organizer: organizerId })
+    .select('title type')
+    .sort({ createdAt: -1 })
+    .lean()
+
+  const rows = await Order.aggregate([
+    { $match: { event: { $in: events.map(e => e._id) }, status: { $in: ['paid', 'partially_refunded'] } } },
+    {
+      $group: {
+        _id: '$event',
+        grossSales: { $sum: '$subtotal' },
+        commission: { $sum: '$platformFee' },
+        earnings: { $sum: '$organizerEarnings' },
+        statuses: { $addToSet: '$payoutStatus' },
+      },
+    },
+  ])
+
+  const rowsByEvent = new Map(rows.map(r => [r._id.toString(), r]))
+
+  return events
+    .map(event => {
+      const row = rowsByEvent.get(event._id.toString())
+      if (!row) {
+        // No paid orders for this event yet — either free, or nothing sold.
+        return event.type === 'free'
+          ? { eventId: event._id, eventTitle: event.title, grossSales: 0, commission: 0, earnings: 0, status: 'free_no_payout' }
+          : null
+      }
+      const worstRank = Math.min(...row.statuses.map((s: string) => PAYOUT_STATUS_RANK[s] ?? 0))
+      return {
+        eventId: event._id,
+        eventTitle: event.title,
+        grossSales: row.grossSales,
+        commission: row.commission,
+        earnings: row.earnings,
+        status: EVENT_ROW_STATUS[worstRank] ?? 'held',
+      }
+    })
+    .filter((row): row is NonNullable<typeof row> => row !== null)
+}
+
+/**
+ * "Payout history" table — actual settled transfers. There's no separate
+ * Payout/Transfer model, so this groups paid orders by the date they were
+ * marked paid out (payoutAt) as a proxy for "one bank transfer batch that
+ * day", which is how payouts are actually sent per the PRD (batched, not
+ * per-order).
+ */
+async function buildPayoutHistory(organizerId: string) {
+  const eventIds = await Event.find({ organizer: organizerId }).distinct('_id')
+
+  const rows = await Order.aggregate([
+    { $match: { event: { $in: eventIds }, payoutStatus: 'paid', payoutAt: { $exists: true } } },
+    {
+      $group: {
+        _id: { $dateToString: { format: '%Y-%m-%d', date: '$payoutAt' } },
+        amount: { $sum: '$organizerEarnings' },
+        payoutAt: { $first: '$payoutAt' },
+      },
+    },
+    { $sort: { payoutAt: -1 } },
+  ])
+
+  return rows.map(row => ({ date: row.payoutAt, amount: row.amount }))
+}
+
 export const listOrganizerPayouts = tryCatchWrapper(async (req: Request, res: Response) => {
-  const { page, limit, skip } = getPagination(req.query)
+  const organizerId = req.session.userId!
+  const user = await User.findById(req.session.userId).select('organizerProfile.bankName organizerProfile.accountNumber').lean()
 
-  const eventIds = await Event.find({ organizer: req.session.userId }).distinct('_id')
-  const filter = { event: { $in: eventIds }, status: { $in: ['paid', 'partially_refunded'] } }
-
-  const [orders, total] = await Promise.all([
-    Order.find(filter)
-      .select('event organizerEarnings payoutStatus payoutAt createdAt')
-      .populate('event', 'title slug startDate')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .lean(),
-    Order.countDocuments(filter),
+  const [earningsByEvent, payoutHistory] = await Promise.all([
+    buildEarningsByEvent(organizerId),
+    buildPayoutHistory(organizerId),
   ])
 
-  const totals = await Order.aggregate([
-    { $match: filter },
-    { $group: { _id: '$payoutStatus', amount: { $sum: '$organizerEarnings' } } },
-  ])
+  const bank = user?.organizerProfile
+  const bankLabel =
+    bank?.bankName && bank?.accountNumber ? `${bank.bankName} ....${bank.accountNumber.slice(-4)}` : null
 
   return sendTsRestSuccess(res, 200, {
     success: true,
     message: 'Payouts fetched',
     body: {
-      orders,
-      meta: buildPaginationMeta(page, limit, total),
-      totalsByStatus: totals.reduce((acc, t) => ({ ...acc, [t._id]: t.amount }), {} as Record<string, number>),
+      earningsByEvent,
+      payoutHistory: payoutHistory.map(row => ({ ...row, bankLabel, status: 'paid' })),
     },
   })
 })

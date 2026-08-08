@@ -28,6 +28,16 @@ export interface INotificationPreferences {
   organizerUpdates: boolean
 }
 
+// Separate from INotificationPreferences above (which is the attendee-facing
+// "My account" prefs) — these drive the toggles on the organizer dashboard's
+// Settings page instead, and are meaningless for an attendee-only account.
+export interface IOrganizerNotificationPreferences {
+  newSalesRsvps: boolean
+  dailySalesSummary: boolean
+  payoutConfirmations: boolean
+  eventApprovals: boolean
+}
+
 export interface IUser extends Document {
   _id: mongoose.Types.ObjectId
   fullname: string
@@ -39,6 +49,7 @@ export interface IUser extends Document {
   avatarUrl?: string
   avatarPublicId?: string
   notificationPreferences: INotificationPreferences
+  organizerNotificationPreferences: IOrganizerNotificationPreferences
   role: 'attendee' | 'organizer' | 'admin'
   isVerified: boolean
   isSuspended: boolean
@@ -133,6 +144,14 @@ const UserSchema = new Schema<IUser>(
       eventReminders: { type: Boolean, default: true },
       weeklyPicks: { type: Boolean, default: true },
       organizerUpdates: { type: Boolean, default: false },
+    },
+    // All default false — an organizer opts in per the Settings page,
+    // rather than getting opted into ops emails by default.
+    organizerNotificationPreferences: {
+      newSalesRsvps: { type: Boolean, default: false },
+      dailySalesSummary: { type: Boolean, default: false },
+      payoutConfirmations: { type: Boolean, default: false },
+      eventApprovals: { type: Boolean, default: false },
     },
     role: {
       type: String,

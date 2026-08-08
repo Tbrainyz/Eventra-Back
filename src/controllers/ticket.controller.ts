@@ -13,7 +13,7 @@ import { resolveAttendeeInfo, ticketBelongsToRequester } from '../lib/attendee.j
 import { env } from '../config/keys.js'
 import { generateQrCodeDataUrl } from '../lib/qrcode.js'
 import { checkRefundEligibility } from '../lib/refundPolicy.js'
-import { buildPaginationMeta, getPagination, generateOTP } from '../lib/utils.js'
+import { buildPaginationMeta, getPagination, generateOTP, escapeRegExp } from '../lib/utils.js'
 import GuestAccessCode from '../models/guestAccessCode.js'
 import { EmailService } from '../services/email.service.js'
 import logger from '../config/logger.js'
@@ -451,16 +451,45 @@ export const listEventAttendees = tryCatchWrapper(async (req: Request, res: Resp
   }
 
   const { page, limit, skip } = getPagination(req.query)
-  const filter = { event: event._id }
 
-  const [tickets, total] = await Promise.all([
+  // Base filter, scoped to the event only — used for the stat counts below
+  // so "Total"/"Checked in"/"Not in" always reflect the whole event, not
+  // whatever search/status filter is currently applied to the list.
+  const baseFilter: Record<string, any> = { event: event._id }
+
+  const filter: Record<string, any> = { ...baseFilter }
+
+  // "checked_in" is its own status; "not_in" covers every ticket that
+  // hasn't been checked in yet (valid, cancelled, refunded) — matches the
+  // Attendees page's All / Checked in / Not in segmented filter.
+  const statusParam = typeof req.query.status === 'string' ? req.query.status : undefined
+  if (statusParam === 'checked_in') {
+    filter.status = 'checked_in'
+  } else if (statusParam === 'not_in') {
+    filter.status = { $ne: 'checked_in' }
+  }
+
+  const search = typeof req.query.search === 'string' ? req.query.search.trim() : ''
+  if (search) {
+    const pattern = new RegExp(escapeRegExp(search), 'i')
+    filter.$or = [{ attendeeName: pattern }, { attendeeEmail: pattern }, { code: pattern }]
+  }
+
+  const [tickets, total, checkedInCount] = await Promise.all([
     Ticket.find(filter).populate('ticketType', 'name').sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
     Ticket.countDocuments(filter),
+    Ticket.countDocuments({ ...baseFilter, status: 'checked_in' }),
   ])
+
+  const totalForEvent = await Ticket.countDocuments(baseFilter)
 
   return sendTsRestSuccess(res, 200, {
     success: true,
     message: 'Attendees fetched',
-    body: { tickets, meta: buildPaginationMeta(page, limit, total) },
+    body: {
+      tickets,
+      meta: buildPaginationMeta(page, limit, total),
+      stats: { total: totalForEvent, checkedIn: checkedInCount, notIn: totalForEvent - checkedInCount },
+    },
   })
 })
