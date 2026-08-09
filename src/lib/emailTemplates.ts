@@ -250,27 +250,40 @@ const baseLayout = (
             margin: 0 0 10px;
           }
 
-          .stub-code-row {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
+          /* Each ticket's QR + short code — stacked so the (much longer)
+             real ticket code never has to fit next to a label on one line. */
+          .stub-ticket {
             background-color: #FFFFFF;
             border: 1px solid #CFE8DF;
             border-radius: 10px;
-            padding: 10px 14px;
+            padding: 16px;
             margin-bottom: 8px;
-            font-family: 'Courier New', monospace;
-            font-size: 13px;
-            color: ${INK};
-            font-weight: 700;
-            letter-spacing: 0.02em;
+            text-align: center;
           }
 
-          .stub-code-row span.label {
+          .stub-ticket-label {
             font-family: 'Plus Jakarta Sans', sans-serif;
-            font-weight: 500;
+            font-size: 12px;
+            font-weight: 600;
             color: ${SUBTLE};
-            letter-spacing: normal;
+            margin: 0 0 10px;
+          }
+
+          .stub-qr {
+            width: 120px;
+            height: 120px;
+            display: block;
+            margin: 0 auto 10px;
+            border-radius: 6px;
+          }
+
+          .stub-ticket-code {
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            color: ${INK};
+            word-break: break-all;
           }
 
           .divider {
@@ -434,20 +447,30 @@ export const guestTicketAccessTemplate = (code: string) =>
 /**
  * Redesigned as an actual ticket stub (dark green "boarding pass" header +
  * perforated tear + light counterfoil listing each code) rather than plain
- * text lines — matches the in-app ticket-card.tsx look. QR codes still
- * arrive as PNG attachments (one per ticket, see EmailService), not inlined
- * here — Brevo's transactional API doesn't give a verified way to embed
- * them as inline cid: images, so a wrongly-guessed approach risked
- * breaking the email silently. Each code is shown as text on the stub so
- * the attachment isn't the only way to identify a ticket.
+ * text lines — matches the in-app ticket-card.tsx look. Each ticket's QR
+ * is embedded directly in the email as a base64 data URI (not a `cid:`
+ * attachment reference, which needs provider-specific wiring to render
+ * inline and isn't guaranteed to work) — so the QR is visible in the email
+ * body itself, not something the reader has to notice as a separate
+ * attachment. The same QR is still sent as a PNG attachment too, for
+ * anyone who wants to save or print it directly.
  */
+/**
+ * Same shortening the frontend does for ticket cards (see
+ * formatTicketCodeForDisplay in features/tickets/adapters.ts) — the real
+ * code is a 40-char secret meant for the QR, not for a human to read on a
+ * narrow line.
+ */
+const formatCodeForDisplay = (code: string): string => `EVT-${code.slice(-6).toUpperCase()}`
+
 export const ticketConfirmationTemplate = (
   name: string,
   eventTitle: string,
   eventDateLabel: string,
   venueLabel: string,
   ticketCount: number,
-  ticketCodes: string[] = []
+  ticketCodes: string[] = [],
+  qrCodeDataUrls: string[] = []
 ) =>
   baseLayout(
     `You're going to ${eventTitle}! 🎉`,
@@ -468,14 +491,17 @@ export const ticketConfirmationTemplate = (
           ${ticketCodes
             .map(
               (code, i) =>
-                `<div class="stub-code-row"><span class="label">${ticketCodes.length > 1 ? `Guest ${i + 1}` : 'Code'}</span>${code}</div>`
+                `<div class="stub-ticket">
+                  <p class="stub-ticket-label">${ticketCodes.length > 1 ? `Guest ${i + 1}` : 'Scan at the door'}</p>
+                  ${qrCodeDataUrls[i] ? `<img src="${qrCodeDataUrls[i]}" width="120" height="120" alt="Ticket QR code" class="stub-qr" />` : ''}
+                  <p class="stub-ticket-code">${formatCodeForDisplay(code)}</p>
+                </div>`
             )
             .join('')}
         </div>
       </div>
 
-      Your QR ${ticketCount > 1 ? 'codes are' : 'code is'} attached to this email as ${ticketCount > 1 ? 'separate images' : 'an image'} —
-      show ${ticketCount > 1 ? 'them' : 'it'} at the door for entry. You can also find ${ticketCount > 1 ? 'them' : 'it'} anytime under My Tickets.
+      Show the QR code${ticketCount > 1 ? 's' : ''} above at the door for entry — you can also find ${ticketCount > 1 ? 'them' : 'it'} anytime under My Tickets.
     `
   )
 

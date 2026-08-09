@@ -10,7 +10,7 @@ import {
   ticketConfirmationTemplate,
   verifyAccountTemplate,
 } from '../lib/emailTemplates.js'
-import { generateQrCodeBuffer } from '../lib/qrcode.js'
+import { generateQrCodeBuffer, generateQrCodeDataUrl } from '../lib/qrcode.js'
 import EmailQueue from '../models/emailQueue.js'
 // import { IUser } from '../models/user.js'
 
@@ -123,13 +123,28 @@ export class EmailService {
     venueLabel: string
     ticketCodes: string[]
   }): Promise<{ success: boolean }> {
-    const htmlBody = ticketConfirmationTemplate(user.fullname, eventTitle, eventDateLabel, venueLabel, ticketCodes.length, ticketCodes)
+    // Data URLs go inline in the HTML (so the QR is actually visible in the
+    // email body, not just sitting in an attachment someone has to notice
+    // and open) — buffers still go as real attachments too, for anyone who
+    // wants to save/print the image directly.
+    const [qrCodeDataUrls, attachments] = await Promise.all([
+      Promise.all(ticketCodes.map(code => generateQrCodeDataUrl(code))),
+      Promise.all(
+        ticketCodes.map(async (code, index) => ({
+          filename: `ticket-${index + 1}.png`,
+          content: await generateQrCodeBuffer(code),
+        }))
+      ),
+    ])
 
-    const attachments = await Promise.all(
-      ticketCodes.map(async (code, index) => ({
-        filename: `ticket-${index + 1}.png`,
-        content: await generateQrCodeBuffer(code),
-      }))
+    const htmlBody = ticketConfirmationTemplate(
+      user.fullname,
+      eventTitle,
+      eventDateLabel,
+      venueLabel,
+      ticketCodes.length,
+      ticketCodes,
+      qrCodeDataUrls
     )
 
     const result = await sendEmail({
