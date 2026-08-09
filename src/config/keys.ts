@@ -25,6 +25,7 @@ const ENV_VARS: EnvSpec[] = [
   { key: 'MEMCACHIER_USERNAME', required: false },
   { key: 'MEMCACHIER_PASSWORD', required: false },
   { key: 'CLOUDINARY_CLOUD_NAME', required: true },
+  { key: 'PAYSTACK_SECRET_KEY', required: true },
   { key: 'CLOUDINARY_API_KEY', required: true },
   { key: 'CLOUDINARY_API_SECRET', required: true },
   { key: 'GOOGLE_CLIENT_ID', required: false },
