@@ -3,6 +3,7 @@ import {
   cancelEvent,
   createEvent,
   deleteEvent,
+  duplicateEvent,
   getEventBySlug,
   getEventDashboard,
   getMyEventById,
@@ -41,6 +42,7 @@ router.patch('/:id', verifySession, requireRole('organizer'), validateFormData(u
 router.patch('/:id/lineup', verifySession, requireRole('organizer'), validateFormData(updateEventLineupSchema), updateEventLineup)
 router.post('/:id/submit', verifySession, requireRole('organizer'), submitEventForApproval)
 router.delete('/:id', verifySession, requireRole('organizer'), deleteEvent)
+router.post('/:id/duplicate', verifySession, requireRole('organizer'), duplicateEvent)
 router.get('/:id/dashboard', verifySession, requireRole('organizer'), getEventDashboard)
 router.patch('/:id/cancel', verifySession, requireRole('organizer', 'admin'), cancelEvent)
 router.patch('/:id/postpone', verifySession, requireRole('organizer', 'admin'), validateFormData(postponeEventSchema), postponeEvent)

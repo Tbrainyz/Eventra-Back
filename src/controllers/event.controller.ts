@@ -205,6 +205,76 @@ export const deleteEvent = tryCatchWrapper(async (req: Request, res: Response) =
   })
 })
 
+/**
+ * Clones an event (and its ticket types) into a fresh draft — the fast
+ * path for "run this again next month" without re-filling the whole
+ * wizard. Deliberately resets everything that shouldn't carry over:
+ * status/dates/sales counters/promotion/lineup images stay put, but the
+ * new copy starts from zero, unpublished, with its own slug.
+ */
+export const duplicateEvent = tryCatchWrapper(async (req: Request, res: Response) => {
+  const { id } = req.params
+  const source = await Event.findOne({ _id: id, organizer: req.session.userId }).lean()
+
+  if (!source) {
+    return sendTsRestError(res, 404, 'Event not found')
+  }
+
+  const title = source.title ? `${source.title} (Copy)` : undefined
+
+  const duplicate = await Event.create({
+    organizer: req.session.userId,
+    title,
+    slug: `${title ? slugify(title) : 'untitled-event'}-${crypto.randomBytes(3).toString('hex')}`,
+    description: source.description,
+    category: source.category,
+    type: source.type,
+    coverImage: source.coverImage,
+    venue: source.venue,
+    isOnline: source.isOnline,
+    onlinePlatform: source.onlinePlatform,
+    onlineJoinLink: source.onlineJoinLink,
+    capacity: source.capacity,
+    refundPolicy: source.refundPolicy,
+    lineup: source.lineup,
+    gallery: source.gallery,
+    agePolicy: source.agePolicy,
+    // Explicitly NOT carried over: startDate/endDate (last run's dates
+    // rarely apply to the next one), status (always starts a fresh
+    // draft), isPromoted/promotion, and every sales/reservation counter.
+  })
+
+  const sourceTicketTypes = await TicketType.find({ event: source._id }).lean()
+  if (sourceTicketTypes.length > 0) {
+    await TicketType.insertMany(
+      sourceTicketTypes.map(ticketType => ({
+        event: duplicate._id,
+        name: ticketType.name,
+        description: ticketType.description,
+        price: ticketType.price,
+        quantity: ticketType.quantity,
+        purchaseLimitPerPerson: ticketType.purchaseLimitPerPerson,
+        isActive: ticketType.isActive,
+        // quantitySold intentionally omitted — defaults to 0, this is a
+        // brand-new, unsold batch of tickets.
+      }))
+    )
+
+    // Mirrors syncEventMinPrice in ticketType.controller.ts — insertMany
+    // bypasses that controller entirely, so Event.minPrice needs the same
+    // recompute done here instead of drifting from what was just inserted.
+    const cheapest = await TicketType.findOne({ event: duplicate._id, isActive: true }).sort({ price: 1 }).select('price').lean()
+    duplicate.minPrice = cheapest?.price ?? 0
+    await duplicate.save()
+  }
+
+  return sendTsRestSuccess(res, 201, {
+    success: true,
+    message: 'Event duplicated as a new draft',
+    body: duplicate.toObject(),
+  })
+})
+
 export const listMyEvents = tryCatchWrapper(async (req: Request, res: Response) => {
   const { page, limit, skip } = getPagination(req.query)
   const filter = { organizer: req.session.userId }
