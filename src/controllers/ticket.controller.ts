@@ -11,7 +11,7 @@ import { PaystackService } from '../services/paystack.service.js'
 import { TicketService } from '../services/ticket.service.js'
 import { resolveAttendeeInfo, ticketBelongsToRequester } from '../lib/attendee.js'
 import { env } from '../config/keys.js'
-import { generateQrCodeDataUrl } from '../lib/qrcode.js'
+import { generateQrCodeBuffer, generateQrCodeDataUrl } from '../lib/qrcode.js'
 import { checkRefundEligibility } from '../lib/refundPolicy.js'
 import { buildPaginationMeta, getPagination, generateOTP, escapeRegExp } from '../lib/utils.js'
 import GuestAccessCode from '../models/guestAccessCode.js'
@@ -365,6 +365,37 @@ export const getTicketQrCode = tryCatchWrapper(async (req: Request, res: Respons
     message: 'QR code generated',
     body: { qrCodeDataUrl },
   })
+})
+
+/**
+ * Serves the QR as an actual image response (Content-Type: image/png),
+ * not JSON — for use in <img src="..."> tags, specifically the
+ * confirmation email (see ticketConfirmationTemplate). That's the one
+ * place a plain browser session check can't work: an email client's image
+ * loader is just an anonymous GET, no cookies attached, so
+ * getTicketQrCode above always 404s for it (ticketBelongsToRequester has
+ * nothing to check against). Keyed by `code` instead of `_id` on purpose —
+ * `code` is itself an unguessable secret (see generateTicketCode), so
+ * knowing it is already equivalent proof of ownership, the same trust
+ * model getOrderByReference above already uses for the same reason.
+ */
+export const getTicketQrCodeImage = tryCatchWrapper(async (req: Request, res: Response) => {
+  const { code } = req.params
+
+  const ticket = await Ticket.findOne({ code }).select('code').lean()
+  if (!ticket) {
+    return res.status(404).end()
+  }
+
+  const qrCodeBuffer = await generateQrCodeBuffer(ticket.code)
+
+  res.setHeader('Content-Type', 'image/png')
+  // A ticket's code never changes once issued, so this image is
+  // permanently cacheable — email clients and proxies fetching it
+  // repeatedly (some re-fetch on every open) don't need to hit this
+  // endpoint more than once per client.
+  res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
+  return res.send(qrCodeBuffer)
 })
 
 /**

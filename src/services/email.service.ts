@@ -10,7 +10,7 @@ import {
   ticketConfirmationTemplate,
   verifyAccountTemplate,
 } from '../lib/emailTemplates.js'
-import { generateQrCodeBuffer, generateQrCodeDataUrl } from '../lib/qrcode.js'
+import { generateQrCodeBuffer } from '../lib/qrcode.js'
 import EmailQueue from '../models/emailQueue.js'
 // import { IUser } from '../models/user.js'
 
@@ -123,28 +123,18 @@ export class EmailService {
     venueLabel: string
     ticketCodes: string[]
   }): Promise<{ success: boolean }> {
-    // Data URLs go inline in the HTML (so the QR is actually visible in the
-    // email body, not just sitting in an attachment someone has to notice
-    // and open) — buffers still go as real attachments too, for anyone who
-    // wants to save/print the image directly.
-    const [qrCodeDataUrls, attachments] = await Promise.all([
-      Promise.all(ticketCodes.map(code => generateQrCodeDataUrl(code))),
-      Promise.all(
-        ticketCodes.map(async (code, index) => ({
-          filename: `ticket-${index + 1}.png`,
-          content: await generateQrCodeBuffer(code),
-        }))
-      ),
-    ])
+    // The QR shown in the email body is a hosted <img src> (see
+    // getTicketQrCodeImage + ticketConfirmationTemplate) generated
+    // on-demand when the email client loads it — nothing to pre-generate
+    // here for that. Buffers are still attached as real PNG files too,
+    // for anyone who wants to save/print the image directly.
+    const htmlBody = ticketConfirmationTemplate(user.fullname, eventTitle, eventDateLabel, venueLabel, ticketCodes.length, ticketCodes)
 
-    const htmlBody = ticketConfirmationTemplate(
-      user.fullname,
-      eventTitle,
-      eventDateLabel,
-      venueLabel,
-      ticketCodes.length,
-      ticketCodes,
-      qrCodeDataUrls
+    const attachments = await Promise.all(
+      ticketCodes.map(async (code, index) => ({
+        filename: `ticket-${index + 1}.png`,
+        content: await generateQrCodeBuffer(code),
+      }))
     )
 
     const result = await sendEmail({

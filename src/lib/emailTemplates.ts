@@ -1,3 +1,5 @@
+import { env } from '../config/keys.js'
+
 // Brand palette pulled from the actual app (index.css / ticket-card.tsx),
 // not invented for email — #0C5C48 is the same gradient start used on the
 // in-app ticket stub, so a ticket looks like the same "brand" wherever
@@ -448,12 +450,13 @@ export const guestTicketAccessTemplate = (code: string) =>
  * Redesigned as an actual ticket stub (dark green "boarding pass" header +
  * perforated tear + light counterfoil listing each code) rather than plain
  * text lines — matches the in-app ticket-card.tsx look. Each ticket's QR
- * is embedded directly in the email as a base64 data URI (not a `cid:`
- * attachment reference, which needs provider-specific wiring to render
- * inline and isn't guaranteed to work) — so the QR is visible in the email
- * body itself, not something the reader has to notice as a separate
- * attachment. The same QR is still sent as a PNG attachment too, for
- * anyone who wants to save or print it directly.
+ * is a normal hosted <img src="...">, pointed at the public
+ * getTicketQrCodeImage endpoint — not a base64 data: URI (Gmail strips
+ * those outright) and not a cid: attachment reference (Brevo, this app's
+ * email provider, doesn't support inline/CID attachments at all — confirmed
+ * dead end, not a guess). A real fetchable URL is the only approach that
+ * reliably renders across email clients. The same QR is still sent as a
+ * PNG attachment too, for anyone who wants to save or print it directly.
  */
 /**
  * Same shortening the frontend does for ticket cards (see
@@ -469,8 +472,7 @@ export const ticketConfirmationTemplate = (
   eventDateLabel: string,
   venueLabel: string,
   ticketCount: number,
-  ticketCodes: string[] = [],
-  qrCodeDataUrls: string[] = []
+  ticketCodes: string[] = []
 ) =>
   baseLayout(
     `You're going to ${eventTitle}! 🎉`,
@@ -491,9 +493,15 @@ export const ticketConfirmationTemplate = (
           ${ticketCodes
             .map(
               (code, i) =>
+                // The QR is a normal hosted image (env.API_URL + the
+                // public getTicketQrCodeImage route), not a base64 data
+                // URI — Gmail strips those, and Brevo (this app's email
+                // provider) doesn't support true cid: inline attachments
+                // at all, so a real fetchable URL is the only approach
+                // that reliably renders across email clients.
                 `<div class="stub-ticket">
                   <p class="stub-ticket-label">${ticketCodes.length > 1 ? `Guest ${i + 1}` : 'Scan at the door'}</p>
-                  ${qrCodeDataUrls[i] ? `<img src="${qrCodeDataUrls[i]}" width="120" height="120" alt="Ticket QR code" class="stub-qr" />` : ''}
+                  <img src="${env.API_URL}/api/v1/tickets/qrcode-image/${code}" width="120" height="120" alt="Ticket QR code" class="stub-qr" />
                   <p class="stub-ticket-code">${formatCodeForDisplay(code)}</p>
                 </div>`
             )

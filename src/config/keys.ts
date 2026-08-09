@@ -20,6 +20,7 @@ const ENV_VARS: EnvSpec[] = [
   { key: 'SESSION_MAX_AGE', required: true },
   { key: 'SESSION_SECRET', required: true },
   { key: 'CLIENT_URL', required: true },
+  { key: 'API_URL', required: true },
   { key: 'MEMCACHIER_SERVERS', required: false },
   { key: 'MEMCACHIER_USERNAME', required: false },
   { key: 'MEMCACHIER_PASSWORD', required: false },

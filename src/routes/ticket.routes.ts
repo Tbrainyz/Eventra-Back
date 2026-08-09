@@ -3,6 +3,7 @@ import {
   cancelReservation,
   getOrderByReference,
   getTicketQrCode,
+  getTicketQrCodeImage,
   initializeCheckout,
   listGuestTickets,
   myTickets,
@@ -43,6 +44,13 @@ router.get('/guest-access/tickets', listGuestTickets) // controller itself check
 // No verifySession: the reference is itself an unguessable capability (see
 // getOrderByReference), same trust model as a payment receipt link.
 router.get('/orders/:reference', getOrderByReference)
+
+// Fully public, no session check — this is what the confirmation email's
+// <img src> hits (see getTicketQrCodeImage's own comment for why it can't
+// share getTicketQrCode below). Keep above '/:ticketId/qrcode' for the
+// same reason /orders/:reference sits above it — a literal path segment
+// should never be swallowed by a param route.
+router.get('/qrcode-image/:code', getTicketQrCodeImage)
 
 // No verifySession on these three — ownership is checked inside each
 // controller via ticketBelongsToRequester, which accepts either a logged-in
