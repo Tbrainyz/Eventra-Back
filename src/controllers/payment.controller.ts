@@ -24,7 +24,22 @@ const isValidPaystackSignature = (req: Request): boolean => {
   return hash === signature
 }
 
-const handleTicketOrderPayment = async (reference: string): Promise<void> => {
+/**
+ * Re-verifies a ticket-order payment directly against Paystack and, if
+ * confirmed, issues tickets — idempotent (safe to call repeatedly for the
+ * same reference). This is the single source of truth for "did this order
+ * get paid", used by both:
+ *  - the Paystack webhook (paystackWebhook below), which is how this is
+ *    *supposed* to fire — near-instant, server-to-server
+ *  - getOrderByReference (ticket.controller.ts), as a fallback — webhooks
+ *    require Paystack's servers to be able to reach ours, which fails
+ *    silently in local dev (localhost isn't publicly reachable) or if the
+ *    webhook URL in the Paystack dashboard is stale/unset. Without a
+ *    fallback, the order just sits 'pending' forever even though Paystack
+ *    already confirmed the charge — which is exactly what polling the
+ *    checkout-callback page against a never-updating order looks like.
+ */
+export const handleTicketOrderPayment = async (reference: string): Promise<void> => {
   const order = await Order.findOne({ paystackReference: reference })
   if (!order) {
     logger.error(`Paystack webhook: no order found for reference ${reference}`)

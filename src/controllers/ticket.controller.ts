@@ -9,6 +9,7 @@ import Ticket from '../models/ticket.js'
 import TicketType from '../models/ticketType.js'
 import { PaystackService } from '../services/paystack.service.js'
 import { TicketService } from '../services/ticket.service.js'
+import { handleTicketOrderPayment } from './payment.controller.js'
 import { resolveAttendeeInfo, ticketBelongsToRequester } from '../lib/attendee.js'
 import { env } from '../config/keys.js'
 import { generateQrCodeBuffer, generateQrCodeDataUrl } from '../lib/qrcode.js'
@@ -48,10 +49,15 @@ export const rsvpFreeEvent = tryCatchWrapper(async (req: Request, res: Response)
 
 /**
  * Lets the client poll "did my payment go through?" after Paystack redirects
- * back to /checkout/callback?reference=... . Order status only ever changes
- * via the webhook (handleTicketOrderPayment in payment.controller.ts) once
- * Paystack itself confirms the transaction — this just reads that status,
- * it never sets it, so there's no way to spoof a paid order from the client.
+ * back to /checkout/callback?reference=... . The webhook (handleTicketOrderPayment
+ * in payment.controller.ts) is what's *supposed* to flip order status —
+ * but webhook delivery needs Paystack's servers to reach ours, which isn't
+ * guaranteed (local dev, a stale dashboard URL, a dropped delivery). So
+ * whenever this finds a still-'pending' order, it re-runs that same
+ * reconciliation itself before responding — self-healing the poll instead
+ * of leaving the client stuck watching a status that will never change on
+ * its own. Still never trusts the client for this: reconciliation always
+ * re-verifies directly against Paystack's API, exactly like the webhook does.
  */
 export const getOrderByReference = tryCatchWrapper(async (req: Request, res: Response) => {
   const { reference } = req.params
@@ -63,10 +69,25 @@ export const getOrderByReference = tryCatchWrapper(async (req: Request, res: Res
   // a payment receipt link.
   const filter = req.session?.userId ? { paystackReference: reference, buyer: req.session.userId } : { paystackReference: reference }
 
-  const order = await Order.findOne(filter).populate('event', 'title slug startDate venue coverImage').lean()
+  let order = await Order.findOne(filter).populate('event', 'title slug startDate venue coverImage').lean()
 
   if (!order) {
     return sendTsRestError(res, 404, 'Order not found')
+  }
+
+  if (order.status === 'pending') {
+    try {
+      await handleTicketOrderPayment(reference as string)
+    } catch (error: any) {
+      // Paystack's API might just be slow/unreachable this instant — leave
+      // the order 'pending' and let the next poll (or the webhook, if it
+      // does eventually land) try again rather than failing this request.
+      logger.error(`getOrderByReference: reconciliation attempt failed for ${reference}: ${error.message}`)
+    }
+    order = await Order.findOne(filter).populate('event', 'title slug startDate venue coverImage').lean()
+    if (!order) {
+      return sendTsRestError(res, 404, 'Order not found')
+    }
   }
 
   // Included directly rather than making the client cross-reference
