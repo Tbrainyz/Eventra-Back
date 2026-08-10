@@ -3,13 +3,29 @@ import { sendTsRestError, sendTsRestSuccess } from '../lib/responseHandler.js'
 import tryCatchWrapper from '../lib/tryCatchWrapper.js'
 import { slugify } from '../lib/utils.js'
 import Category from '../models/category.js'
+import Event from '../models/event.js'
 
+// Public listing needs an eventCount per category (used by the "Browse by
+// vibe" cards on the home page and anywhere else that wants to show how
+// active a category is) — only counts events a visitor could actually see
+// (status: 'approved'), same visibility rule as listPublicEvents.
 export const listPublicCategories = tryCatchWrapper(async (req: Request, res: Response) => {
-  const categories = await Category.find({ isActive: true }).sort({ name: 1 }).lean()
+  const [categories, counts] = await Promise.all([
+    Category.find({ isActive: true }).sort({ name: 1 }).lean(),
+    Event.aggregate([{ $match: { status: 'approved' } }, { $group: { _id: '$category', count: { $sum: 1 } } }]),
+  ])
+
+  const countByCategoryId = new Map(counts.map(c => [String(c._id), c.count]))
+
+  const body = categories.map(category => ({
+    ...category,
+    eventCount: countByCategoryId.get(String(category._id)) ?? 0,
+  }))
+
   return sendTsRestSuccess(res, 200, {
     success: true,
     message: 'Categories fetched',
-    body: categories,
+    body,
   })
 })
 
