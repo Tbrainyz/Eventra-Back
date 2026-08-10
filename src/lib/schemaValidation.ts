@@ -136,6 +136,7 @@ export const createEventSchema = z.object({
   // contract, and Mongo assigns fresh _ids to any new entries regardless.
   lineup: z.array(lineupMemberSchema).max(30, 'Lineup can have at most 30 entries').optional(),
   gallery: z.array(z.string().trim().url()).max(20, 'Gallery can have at most 20 photos').optional(),
+  tags: z.array(z.string().trim().min(1).max(30)).max(10, 'Up to 10 tags').optional(),
   agePolicy: z.string().trim().optional(),
 })
 

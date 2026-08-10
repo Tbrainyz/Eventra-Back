@@ -238,6 +238,7 @@ export const duplicateEvent = tryCatchWrapper(async (req: Request, res: Response
     refundPolicy: source.refundPolicy,
     lineup: source.lineup,
     gallery: source.gallery,
+    tags: source.tags,
     agePolicy: source.agePolicy,
     // Explicitly NOT carried over: startDate/endDate (last run's dates
     // rarely apply to the next one), status (always starts a fresh

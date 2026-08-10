@@ -56,6 +56,12 @@ export interface IEvent extends Document {
   // the public event page, entirely organizer-managed. Order in the array
   // is display order (headliners first).
   lineup: IEventLineupMember[]
+  // Free-form keywords an organizer picks to describe the vibe/genre of
+  // their event (e.g. "Afrobeats", "Outdoor", "18+") — shown as pills on
+  // the public event page. Distinct from `category` (one required taxonomy
+  // pick) and `agePolicy` (a single age-restriction value): tags are
+  // optional, multiple, and organizer's own words.
+  tags: string[]
   gallery: string[]
   // Free text on purpose (e.g. "All Ages", "18+") rather than an enum —
   // the wizard's dropdown offers common presets but organizers in
@@ -188,6 +194,10 @@ const EventSchema = new Schema<IEvent>(
       default: [],
     },
     gallery: {
+      type: [String],
+      default: [],
+    },
+    tags: {
       type: [String],
       default: [],
     },
