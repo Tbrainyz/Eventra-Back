@@ -8,10 +8,10 @@ import TicketType from '../models/ticketType.js'
 import { AttendeeInfo } from '../lib/attendee.js'
 import { EmailService } from './email.service.js'
 
-const formatEventDateLabel = (date: Date): string =>
+export const formatEventDateLabel = (date: Date): string =>
   date.toLocaleString('en-NG', { dateStyle: 'full', timeStyle: 'short' })
 
-const formatVenueLabel = (venue: { name: string; city: string }): string => `${venue.name}, ${venue.city}`
+export const formatVenueLabel = (venue: { name: string; city: string }): string => `${venue.name}, ${venue.city}`
 
 export class TicketService {
   /**
@@ -20,6 +20,18 @@ export class TicketService {
    */
   static generateTicketCode(): string {
     return `EVT-TKT-${crypto.randomBytes(16).toString('hex')}`
+  }
+
+  /**
+   * Short, human-readable ticket identifier for display (ticket card,
+   * organizer attendee lists, etc.) — deliberately separate from both the
+   * Mongo `_id` (an implementation detail) and `code` (a long secret that
+   * must never double as a look-up-friendly label). Collisions are
+   * astronomically unlikely at this length, same trade-off the codebase
+   * already makes for `code` above (no retry-on-collision loop either).
+   */
+  static generateTicketId(): string {
+    return `TKT-${crypto.randomBytes(4).toString('hex').toUpperCase()}`
   }
 
   /**
@@ -70,6 +82,7 @@ export class TicketService {
           Array.from({ length: guests }, () => ({
             event: updatedEvent._id,
             attendee: attendee.userId,
+            ticketId: this.generateTicketId(),
             code: this.generateTicketCode(),
             type: 'free' as const,
             price: 0,
@@ -132,6 +145,7 @@ export class TicketService {
             attendee: attendee.userId,
             ticketType: item.ticketType,
             order: order._id,
+            ticketId: this.generateTicketId(),
             code: this.generateTicketCode(),
             type: 'paid' as const,
             price: item.unitPrice,

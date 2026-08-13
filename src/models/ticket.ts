@@ -6,6 +6,10 @@ export interface ITicket extends Document {
   attendee?: mongoose.Types.ObjectId
   ticketType?: mongoose.Types.ObjectId
   order?: mongoose.Types.ObjectId
+  // Human-readable ticket identifier shown to attendees/organizers (e.g.
+  // "TKT-A1B2C3D4") — the Mongo `_id` is an internal implementation detail
+  // and was never meant to be a user-facing ticket number.
+  ticketId: string
   code: string
   type: 'free' | 'paid'
   price: number
@@ -44,6 +48,14 @@ const TicketSchema = new Schema<ITicket>(
     order: {
       type: Schema.Types.ObjectId,
       ref: 'Order',
+    },
+    // Short, human-readable identifier — displayed on the ticket card and
+    // to organizers. Not a secret (unlike `code` below), just a friendlier
+    // stand-in for the Mongo `_id`.
+    ticketId: {
+      type: String,
+      required: true,
+      unique: true,
     },
     // The value encoded in the QR code. Must be unguessable and unique per ticket
     // so a screenshot of one ticket can never be reused as another.

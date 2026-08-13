@@ -559,6 +559,51 @@ export const eventRejectedTemplate = (name: string, eventTitle: string, reason: 
     `
   )
 
+export const eventCancelledTemplate = (name: string, eventTitle: string, eventDateLabel: string, reason: string, isPaid: boolean) =>
+  baseLayout(
+    `${eventTitle} has been cancelled`,
+    name,
+    `
+      We're sorry to tell you that <strong style="color: ${INK};">${eventTitle}</strong>,
+      originally scheduled for ${eventDateLabel}, has been cancelled by the organizer.
+
+      <div class="ticket-line">
+        <strong style="color: ${INK};">Reason:</strong> ${reason}
+      </div>
+
+      ${
+        isPaid
+          ? `Since this was a paid ticket, a refund is being processed back to your original payment method — you'll get a separate email once it's complete.`
+          : `No action is needed on your end — your reservation has simply been cancelled.`
+      }
+    `
+  )
+
+export const eventPostponedTemplate = (
+  name: string,
+  eventTitle: string,
+  oldDateLabel: string,
+  newDateLabel: string,
+  reason?: string
+) =>
+  baseLayout(
+    `${eventTitle} has a new date`,
+    name,
+    `
+      <strong style="color: ${INK};">${eventTitle}</strong> has been postponed from its original
+      date of ${oldDateLabel}.
+
+      <div class="ticket-line">
+        <strong style="color: ${INK};">New date:</strong> ${newDateLabel}
+      </div>
+
+      ${reason ? `<div class="ticket-line"><strong style="color: ${INK};">Reason:</strong> ${reason}</div>` : ''}
+
+      Your existing ticket is still valid for the new date — nothing further is needed from you.
+      If the new date doesn't work for you, you can request a refund from My Tickets.
+    `
+  )
+
 export const refundProcessedTemplate = (name: string, eventTitle: string, amountLabel: string) =>
   baseLayout(
     'Your refund has been processed',

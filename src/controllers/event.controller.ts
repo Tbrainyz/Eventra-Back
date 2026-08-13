@@ -10,6 +10,9 @@ import Ticket from '../models/ticket.js'
 import TicketType from '../models/ticketType.js'
 import User from '../models/user.js'
 import { PaystackService } from '../services/paystack.service.js'
+import { EmailService } from '../services/email.service.js'
+import logger from '../config/logger.js'
+import { formatEventDateLabel } from '../services/ticket.service.js'
 
 const EDITABLE_STATUSES = ['draft', 'rejected']
 
@@ -460,6 +463,7 @@ export const getMyEventById = tryCatchWrapper(async (req: Request, res: Response
  */
 export const cancelEvent = tryCatchWrapper(async (req: Request, res: Response) => {
   const { id } = req.params
+  const { reason } = req.body
   const isAdmin = req.session.role === 'admin'
 
   const event = await Event.findOne(isAdmin ? { _id: id } : { _id: id, organizer: req.session.userId })
@@ -472,7 +476,30 @@ export const cancelEvent = tryCatchWrapper(async (req: Request, res: Response) =
 
   event.status = 'cancelled'
   event.cancelledAt = new Date()
+  event.cancellationReason = reason
   await event.save()
+
+  // Snapshot attendees BEFORE the status-flip loops below run — the
+  // notice goes out to everyone currently holding a live ticket,
+  // regardless of what their ticket's status becomes as a result of this
+  // same cancellation.
+  const affectedTickets = await Ticket.find({ event: event._id, status: { $in: ['valid', 'checked_in'] } })
+    .select('attendeeName attendeeEmail')
+    .lean()
+  const uniqueAttendees = Array.from(new Map(affectedTickets.map(t => [t.attendeeEmail, t])).values())
+
+  const eventDateLabel = event.startDate ? formatEventDateLabel(event.startDate) : 'the scheduled date'
+  Promise.all(
+    uniqueAttendees.map(attendee =>
+      EmailService.sendEventCancelledEmail(
+        { fullname: attendee.attendeeName, email: attendee.attendeeEmail },
+        event.title,
+        eventDateLabel,
+        reason,
+        event.type === 'paid'
+      )
+    )
+  ).catch(error => logger.error({ err: error }, `Cancellation emails failed for event ${event._id}`))
 
   if (event.type === 'paid') {
     const paidOrders = await Order.find({ event: event._id, status: 'paid' })
@@ -487,6 +514,14 @@ export const cancelEvent = tryCatchWrapper(async (req: Request, res: Response) =
         order.refundAmount = order.total
         await order.save()
         await Ticket.updateMany({ order: order._id, status: { $in: ['valid', 'checked_in'] } }, { status: 'refunded' })
+
+        const buyer = order.buyer ? await User.findById(order.buyer).select('fullname email').lean() : null
+        const recipient = buyer ?? (order.guestEmail ? { fullname: order.guestName, email: order.guestEmail } : null)
+        if (recipient) {
+          EmailService.sendRefundProcessedEmail(recipient, event.title, `₦${order.total.toLocaleString('en-NG')}`).catch(error =>
+            logger.error({ err: error }, `Refund-processed email failed for order ${order._id}`)
+          )
+        }
       } catch (error: any) {
         // Logged inside PaystackService — leave this order for manual admin follow-up.
       }
@@ -508,7 +543,7 @@ export const cancelEvent = tryCatchWrapper(async (req: Request, res: Response) =
  */
 export const postponeEvent = tryCatchWrapper(async (req: Request, res: Response) => {
   const { id } = req.params
-  const { newStartDate } = req.body
+  const { newStartDate, reason } = req.body
   const isAdmin = req.session.role === 'admin'
 
   if (!newStartDate) {
@@ -523,9 +558,30 @@ export const postponeEvent = tryCatchWrapper(async (req: Request, res: Response)
     return sendTsRestError(res, 400, 'Only a live approved event can be postponed')
   }
 
+  const oldDateLabel = event.startDate ? formatEventDateLabel(event.startDate) : 'the original date'
+
   event.status = 'postponed'
   event.postponedTo = new Date(newStartDate)
+  event.postponementReason = reason
   await event.save()
+
+  const affectedTickets = await Ticket.find({ event: event._id, status: { $in: ['valid', 'checked_in'] } })
+    .select('attendeeName attendeeEmail')
+    .lean()
+  const uniqueAttendees = Array.from(new Map(affectedTickets.map(t => [t.attendeeEmail, t])).values())
+  const newDateLabel = formatEventDateLabel(event.postponedTo)
+
+  Promise.all(
+    uniqueAttendees.map(attendee =>
+      EmailService.sendEventPostponedEmail(
+        { fullname: attendee.attendeeName, email: attendee.attendeeEmail },
+        event.title,
+        oldDateLabel,
+        newDateLabel,
+        reason
+      )
+    )
+  ).catch(error => logger.error({ err: error }, `Postponement emails failed for event ${event._id}`))
 
   return sendTsRestSuccess(res, 200, {
     success: true,

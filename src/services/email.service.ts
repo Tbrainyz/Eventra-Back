@@ -1,6 +1,8 @@
 import sendEmail from '../email/send-email.js'
 import {
   eventApprovedTemplate,
+  eventCancelledTemplate,
+  eventPostponedTemplate,
   eventRejectedTemplate,
   guestTicketAccessTemplate,
   organizerApprovedTemplate,
@@ -188,6 +190,36 @@ export class EmailService {
       email: user.email,
       subject: 'Your refund has been processed',
       message: refundProcessedTemplate(user.fullname, eventTitle, amountLabel),
+    })
+    return { success: result.success }
+  }
+
+  static async sendEventCancelledEmail(
+    user: any,
+    eventTitle: string,
+    eventDateLabel: string,
+    reason: string,
+    isPaid: boolean
+  ): Promise<{ success: boolean }> {
+    const result = await sendEmail({
+      email: user.email,
+      subject: `${eventTitle} has been cancelled`,
+      message: eventCancelledTemplate(user.fullname, eventTitle, eventDateLabel, reason, isPaid),
+    })
+    return { success: result.success }
+  }
+
+  static async sendEventPostponedEmail(
+    user: any,
+    eventTitle: string,
+    oldDateLabel: string,
+    newDateLabel: string,
+    reason?: string
+  ): Promise<{ success: boolean }> {
+    const result = await sendEmail({
+      email: user.email,
+      subject: `${eventTitle} has a new date`,
+      message: eventPostponedTemplate(user.fullname, eventTitle, oldDateLabel, newDateLabel, reason),
     })
     return { success: result.success }
   }

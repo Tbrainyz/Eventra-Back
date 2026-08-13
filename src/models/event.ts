@@ -78,7 +78,9 @@ export interface IEvent extends Document {
   minPrice: number
   publishedAt?: Date
   cancelledAt?: Date
+  cancellationReason?: string
   postponedTo?: Date
+  postponementReason?: string
   createdAt: Date
   updatedAt: Date
 }
@@ -251,8 +253,16 @@ const EventSchema = new Schema<IEvent>(
     cancelledAt: {
       type: Date,
     },
+    cancellationReason: {
+      type: String,
+      trim: true,
+    },
     postponedTo: {
       type: Date,
+    },
+    postponementReason: {
+      type: String,
+      trim: true,
     },
   },
   {

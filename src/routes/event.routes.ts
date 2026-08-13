@@ -22,6 +22,7 @@ import {
   checkInSchema,
   createEventSchema,
   postponeEventSchema,
+  cancelEventSchema,
   requestPromotionSchema,
   updateEventLineupSchema,
   updateEventSchema,
@@ -44,7 +45,7 @@ router.post('/:id/submit', verifySession, requireRole('organizer'), submitEventF
 router.delete('/:id', verifySession, requireRole('organizer'), deleteEvent)
 router.post('/:id/duplicate', verifySession, requireRole('organizer'), duplicateEvent)
 router.get('/:id/dashboard', verifySession, requireRole('organizer'), getEventDashboard)
-router.patch('/:id/cancel', verifySession, requireRole('organizer', 'admin'), cancelEvent)
+router.patch('/:id/cancel', verifySession, requireRole('organizer', 'admin'), validateFormData(cancelEventSchema), cancelEvent)
 router.patch('/:id/postpone', verifySession, requireRole('organizer', 'admin'), validateFormData(postponeEventSchema), postponeEvent)
 router.post('/:eventId/check-in', verifySession, requireRole('organizer'), validateFormData(checkInSchema), checkInTicket)
 router.get('/:eventId/attendees', verifySession, requireRole('organizer'), listEventAttendees)

@@ -220,4 +220,9 @@ export const requestPromotionSchema = z.object({
 
 export const postponeEventSchema = z.object({
   newStartDate: z.coerce.date(),
+  reason: z.string().trim().min(3, 'A reason is required').max(500).optional(),
+})
+
+export const cancelEventSchema = z.object({
+  reason: z.string().trim().min(3, 'A reason is required').max(500),
 })
