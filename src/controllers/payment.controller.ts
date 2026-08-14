@@ -87,7 +87,7 @@ export const handleTicketOrderPayment = async (reference: string): Promise<void>
   }
 }
 
-const handlePromotionPayment = async (reference: string): Promise<void> => {
+export const handlePromotionPayment = async (reference: string): Promise<void> => {
   const event = await Event.findOne({ 'promotion.paystackReference': reference })
   if (!event || !event.promotion) {
     logger.error(`Paystack webhook: no event found for promotion reference ${reference}`)

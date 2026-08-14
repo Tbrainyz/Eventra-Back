@@ -2,11 +2,13 @@ import { randomUUID } from 'crypto'
 import { Request, Response } from 'express'
 import { env } from '../config/keys.js'
 import { getPromotionPackage, PROMOTION_PACKAGES } from '../config/promotionPackages.js'
+import logger from '../config/logger.js'
 import { sendTsRestError, sendTsRestSuccess } from '../lib/responseHandler.js'
 import tryCatchWrapper from '../lib/tryCatchWrapper.js'
 import Event from '../models/event.js'
 import User from '../models/user.js'
 import { PaystackService } from '../services/paystack.service.js'
+import { handlePromotionPayment } from './payment.controller.js'
 
 const NAIRA_TO_KOBO = 100
 
@@ -31,8 +33,36 @@ const PROMOTION_STATUS_LABEL: Record<string, string> = {
  * Each event only ever holds one `promotion` record at a time (see
  * IEventPromotion on the Event model), so this is one row per event, most
  * recent first — not a full history of past promotion requests.
+ *
+ * Self-heals like getOrderByReference does for ticket orders: promotion
+ * payment is normally confirmed by Paystack's webhook flipping
+ * `promotion.paidAt`, but a webhook that never arrives (unreachable
+ * localhost in dev, a stale/unset dashboard URL, etc.) would otherwise
+ * leave a genuinely-paid promotion stuck 'pending' forever — which is
+ * exactly what the callback page polling this endpoint looks like from
+ * the outside. So before building the response, re-verify any of this
+ * organizer's promotions that are still pending and unpaid directly
+ * against Paystack, same as the webhook would.
  */
 export const listMyPromotions = tryCatchWrapper(async (req: Request, res: Response) => {
+  const unreconciled = await Event.find({
+    organizer: req.session.userId,
+    'promotion.status': 'pending',
+    'promotion.paidAt': { $exists: false },
+  }).select('promotion')
+
+  await Promise.all(
+    unreconciled.map(async event => {
+      const reference = event.promotion?.paystackReference
+      if (!reference) return
+      try {
+        await handlePromotionPayment(reference)
+      } catch (error: any) {
+        logger.error(`listMyPromotions: reconciliation attempt failed for ${reference}: ${error.message}`)
+      }
+    })
+  )
+
   const events = await Event.find({ organizer: req.session.userId, promotion: { $exists: true } })
     .select('title promotion')
     .sort({ 'promotion.paidAt': -1, 'promotion.startsAt': -1 })
