@@ -370,6 +370,64 @@ export const listPublicEvents = tryCatchWrapper(async (req: Request, res: Respon
   })
 })
 
+const PLACEMENT_PACKAGES: Record<string, string[]> = {
+  // Homepage Hero promotion buys hero + featured + explore placement, so
+  // it's eligible for both slots below — see config/promotionPackages.ts
+  // for the actual package definitions.
+  hero: ['homepage-hero'],
+  featured: ['featured', 'homepage-hero'],
+}
+
+/**
+ * Powers the homepage Hero carousel and "Featured This Week" section.
+ * Actively-promoted events for the requested placement come first; any
+ * remaining slots are filled with a random sample of other live events so
+ * the section never looks sparse or empty when nobody's currently
+ * promoting — random on every request, not cached, so it doesn't look
+ * static either.
+ *
+ * Deliberately a separate endpoint from listPublicEvents/Explore — that
+ * one shows every approved event with no filtering (promotion only
+ * affects its sort order there), which is a different contract than "give
+ * me a fixed-size promotional shelf."
+ */
+export const getSpotlightEvents = tryCatchWrapper(async (req: Request, res: Response) => {
+  const placement = req.query.placement === 'hero' ? 'hero' : 'featured'
+  const limit = Math.min(Number(req.query.limit) || 8, 20)
+  const now = new Date()
+
+  const promotedEvents = await Event.find({
+    status: 'approved',
+    isPromoted: true,
+    'promotion.package': { $in: PLACEMENT_PACKAGES[placement] },
+  })
+    .sort({ 'promotion.startsAt': -1 })
+    .limit(limit)
+    .populate('category', 'name slug')
+    .lean()
+
+  const remaining = limit - promotedEvents.length
+  let fillerEvents: any[] = []
+  if (remaining > 0) {
+    fillerEvents = await Event.aggregate([
+      { $match: { status: 'approved', startDate: { $gte: now }, _id: { $nin: promotedEvents.map(e => e._id) } } },
+      { $sample: { size: remaining } },
+    ])
+    fillerEvents = await Event.populate(fillerEvents, { path: 'category', select: 'name slug' })
+  }
+
+  const events = [...promotedEvents, ...fillerEvents].map(event => ({
+    ...event,
+    isPromotedPlacement: promotedEvents.some(p => p._id.equals(event._id)),
+  }))
+
+  return sendTsRestSuccess(res, 200, {
+    success: true,
+    message: 'Spotlight events fetched',
+    body: { events },
+  })
+})
+
 export const getEventDashboard = tryCatchWrapper(async (req: Request, res: Response) => {
   const { id } = req.params
   const event = await Event.findOne({ _id: id, organizer: req.session.userId }).populate('category', 'name').lean()
