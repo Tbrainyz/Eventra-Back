@@ -125,7 +125,12 @@ export const initializeCheckout = tryCatchWrapper(async (req: Request, res: Resp
     resolveAttendeeInfo(req, { guestName, guestEmail, guestPhone }),
   ])
 
-  if (!event || event.type !== 'paid' || event.status !== 'approved') {
+  // A postponed event is still on sale (existing tickets stay valid for
+  // the new date, and new buyers should be able to join it too) — only
+  // status: 'approved' was ever accepted here before, which meant
+  // postponing an event silently blocked anyone from buying a ticket for
+  // it afterwards.
+  if (!event || event.type !== 'paid' || (event.status !== 'approved' && event.status !== 'postponed')) {
     return sendTsRestError(res, 404, 'This event is not open for ticket purchases')
   }
   if (!attendee) {

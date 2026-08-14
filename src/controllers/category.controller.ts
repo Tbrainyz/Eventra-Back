@@ -8,11 +8,11 @@ import Event from '../models/event.js'
 // Public listing needs an eventCount per category (used by the "Browse by
 // vibe" cards on the home page and anywhere else that wants to show how
 // active a category is) — only counts events a visitor could actually see
-// (status: 'approved'), same visibility rule as listPublicEvents.
+// (status: approved or postponed), same visibility rule as listPublicEvents.
 export const listPublicCategories = tryCatchWrapper(async (req: Request, res: Response) => {
   const [categories, counts] = await Promise.all([
     Category.find({ isActive: true }).sort({ name: 1 }).lean(),
-    Event.aggregate([{ $match: { status: 'approved' } }, { $group: { _id: '$category', count: { $sum: 1 } } }]),
+    Event.aggregate([{ $match: { status: { $in: ['approved', 'postponed'] } } }, { $group: { _id: '$category', count: { $sum: 1 } } }]),
   ])
 
   const countByCategoryId = new Map(counts.map(c => [String(c._id), c.count]))

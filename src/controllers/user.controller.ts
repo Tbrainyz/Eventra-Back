@@ -110,7 +110,7 @@ export const listSavedEvents = tryCatchWrapper(async (req: Request, res: Respons
   const user = await User.findById(req.session.userId)
     .populate({
       path: 'savedEvents',
-      match: { status: 'approved' },
+      match: { status: { $in: ['approved', 'postponed'] } },
       select: 'title slug startDate venue coverImage type category minPrice isPromoted',
       populate: { path: 'category', select: 'name slug' },
     })

@@ -295,11 +295,14 @@ export const listMyEvents = tryCatchWrapper(async (req: Request, res: Response) 
   })
 })
 
-// Public — only ever surfaces admin-approved events.
+// Public — surfaces admin-approved events, including ones that have since
+// been postponed (still live/on-sale, just with a new date — see the note
+// on updateEventLineup above). Only cancelled/rejected/draft events are
+// excluded.
 export const listPublicEvents = tryCatchWrapper(async (req: Request, res: Response) => {
   const { page, limit, skip } = getPagination(req.query)
 
-  const filter: Record<string, any> = { status: 'approved' }
+  const filter: Record<string, any> = { status: { $in: ['approved', 'postponed'] } }
 
   // Category — accepts a single id or a comma-separated list, e.g. ?category=a,b,c
   if (req.query.category && typeof req.query.category === 'string') {
@@ -607,7 +610,18 @@ export const postponeEvent = tryCatchWrapper(async (req: Request, res: Response)
   const oldDateLabel = event.startDate ? formatEventDateLabel(event.startDate) : 'the original date'
 
   event.status = 'postponed'
+  // The new date IS the event's date now — everything else in the app
+  // (event cards, sorting, the public event page, "is this event still
+  // upcoming" checks) reads startDate, not postponedTo. postponedTo stays
+  // set too, purely as a record that this event was postponed at all.
+  const previousStartDate = event.startDate
   event.postponedTo = new Date(newStartDate)
+  event.startDate = event.postponedTo
+  // Shift endDate by the same amount so the event keeps its original
+  // duration instead of ending before its (now later) start.
+  if (event.endDate && previousStartDate) {
+    event.endDate = new Date(event.endDate.getTime() + (event.startDate.getTime() - previousStartDate.getTime()))
+  }
   event.postponementReason = reason
   await event.save()
 
@@ -615,7 +629,7 @@ export const postponeEvent = tryCatchWrapper(async (req: Request, res: Response)
     .select('attendeeName attendeeEmail')
     .lean()
   const uniqueAttendees = Array.from(new Map(affectedTickets.map(t => [t.attendeeEmail, t])).values())
-  const newDateLabel = formatEventDateLabel(event.postponedTo)
+  const newDateLabel = formatEventDateLabel(event.startDate)
 
   Promise.all(
     uniqueAttendees.map(attendee =>
@@ -639,7 +653,7 @@ export const postponeEvent = tryCatchWrapper(async (req: Request, res: Response)
 export const getEventBySlug = tryCatchWrapper(async (req: Request, res: Response) => {
   const { slug } = req.params
 
-  const event = await Event.findOne({ slug, status: 'approved' })
+  const event = await Event.findOne({ slug, status: { $in: ['approved', 'postponed'] } })
     .populate('category', 'name slug')
     .populate('organizer', 'fullname organizerProfile.businessName')
     .lean()
