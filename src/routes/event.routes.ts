@@ -7,7 +7,6 @@ import {
   getEventBySlug,
   getEventDashboard,
   getMyEventById,
-  getSpotlightEvents,
   listMyEvents,
   listPublicEvents,
   postponeEvent,
@@ -36,7 +35,6 @@ const router = Router()
 router.use('/:eventId/ticket-types', ticketTypeRoutes)
 
 router.get('/', listPublicEvents)
-router.get('/spotlight', getSpotlightEvents)
 router.get('/mine', verifySession, requireRole('organizer'), listMyEvents)
 router.get('/mine/:id', verifySession, requireRole('organizer'), getMyEventById)
 

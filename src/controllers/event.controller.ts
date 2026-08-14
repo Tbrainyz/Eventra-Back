@@ -13,6 +13,7 @@ import { PaystackService } from '../services/paystack.service.js'
 import { EmailService } from '../services/email.service.js'
 import logger from '../config/logger.js'
 import { formatEventDateLabel } from '../services/ticket.service.js'
+import { PROMOTION_PACKAGE_IDS } from '../config/promotionPackages.js'
 
 const EDITABLE_STATUSES = ['draft', 'rejected']
 
@@ -313,6 +314,19 @@ export const listPublicEvents = tryCatchWrapper(async (req: Request, res: Respon
   }
   if (req.query.type === 'free' || req.query.type === 'paid') filter.type = req.query.type
 
+  // A specific promotion tier — Home's Hero carousel, Home's "Featured
+  // This Week", and Explore's Spotlight card each need events promoted
+  // under exactly the package an organizer paid for, not just "any
+  // promoted event" (that would let a cheaper Spotlight purchase show up
+  // in the Hero slot just because it happened to sort first). Each of
+  // those three UI placements calls this endpoint with its own
+  // `promotionPackage` value rather than sharing one generic "promoted"
+  // query — see wizard-paths-style usage in Home/Explore on the client.
+  if (typeof req.query.promotionPackage === 'string' && PROMOTION_PACKAGE_IDS.includes(req.query.promotionPackage)) {
+    filter.isPromoted = true
+    filter['promotion.package'] = req.query.promotionPackage
+  }
+
   // "When" — Today / This weekend / This week / This month
   if (
     req.query.when === 'today' ||
@@ -363,68 +377,20 @@ export const listPublicEvents = tryCatchWrapper(async (req: Request, res: Respon
     Event.countDocuments(filter),
   ])
 
-  return sendTsRestSuccess(res, 200, {
-    success: true,
-    message: 'Events fetched',
-    body: { events, meta: buildPaginationMeta(page, limit, total) },
-  })
-})
-
-const PLACEMENT_PACKAGES: Record<string, string[]> = {
-  // Homepage Hero promotion buys hero + featured + explore placement, so
-  // it's eligible for both slots below — see config/promotionPackages.ts
-  // for the actual package definitions.
-  hero: ['homepage-hero'],
-  featured: ['featured', 'homepage-hero'],
-}
-
-/**
- * Powers the homepage Hero carousel and "Featured This Week" section.
- * Actively-promoted events for the requested placement come first; any
- * remaining slots are filled with a random sample of other live events so
- * the section never looks sparse or empty when nobody's currently
- * promoting — random on every request, not cached, so it doesn't look
- * static either.
- *
- * Deliberately a separate endpoint from listPublicEvents/Explore — that
- * one shows every approved event with no filtering (promotion only
- * affects its sort order there), which is a different contract than "give
- * me a fixed-size promotional shelf."
- */
-export const getSpotlightEvents = tryCatchWrapper(async (req: Request, res: Response) => {
-  const placement = req.query.placement === 'hero' ? 'hero' : 'featured'
-  const limit = Math.min(Number(req.query.limit) || 8, 20)
-  const now = new Date()
-
-  const promotedEvents = await Event.find({
-    status: 'approved',
-    isPromoted: true,
-    'promotion.package': { $in: PLACEMENT_PACKAGES[placement] },
-  })
-    .sort({ 'promotion.startsAt': -1 })
-    .limit(limit)
-    .populate('category', 'name slug')
-    .lean()
-
-  const remaining = limit - promotedEvents.length
-  let fillerEvents: any[] = []
-  if (remaining > 0) {
-    fillerEvents = await Event.aggregate([
-      { $match: { status: 'approved', startDate: { $gte: now }, _id: { $nin: promotedEvents.map(e => e._id) } } },
-      { $sample: { size: remaining } },
-    ])
-    fillerEvents = await Event.populate(fillerEvents, { path: 'category', select: 'name slug' })
-  }
-
-  const events = [...promotedEvents, ...fillerEvents].map(event => ({
+  // Swap the internal `promotion` sub-document (which carries the Paystack
+  // reference and admin review status — neither of which is public) for a
+  // single `promotionPackage` field. Only set when the promotion is
+  // actually live (`isPromoted`), so a rejected/expired/pending promotion
+  // never leaks which package an organizer attempted.
+  const publicEvents = events.map(({ promotion, ...event }) => ({
     ...event,
-    isPromotedPlacement: promotedEvents.some(p => p._id.equals(event._id)),
+    promotionPackage: event.isPromoted ? promotion?.package : undefined,
   }))
 
   return sendTsRestSuccess(res, 200, {
     success: true,
-    message: 'Spotlight events fetched',
-    body: { events },
+    message: 'Events fetched',
+    body: { events: publicEvents, meta: buildPaginationMeta(page, limit, total) },
   })
 })
 
