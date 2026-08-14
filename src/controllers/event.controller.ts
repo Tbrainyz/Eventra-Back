@@ -13,7 +13,6 @@ import { PaystackService } from '../services/paystack.service.js'
 import { EmailService } from '../services/email.service.js'
 import logger from '../config/logger.js'
 import { formatEventDateLabel } from '../services/ticket.service.js'
-import { PROMOTION_PACKAGE_IDS } from '../config/promotionPackages.js'
 
 const EDITABLE_STATUSES = ['draft', 'rejected']
 
@@ -314,19 +313,6 @@ export const listPublicEvents = tryCatchWrapper(async (req: Request, res: Respon
   }
   if (req.query.type === 'free' || req.query.type === 'paid') filter.type = req.query.type
 
-  // A specific promotion tier — Home's Hero carousel, Home's "Featured
-  // This Week", and Explore's Spotlight card each need events promoted
-  // under exactly the package an organizer paid for, not just "any
-  // promoted event" (that would let a cheaper Spotlight purchase show up
-  // in the Hero slot just because it happened to sort first). Each of
-  // those three UI placements calls this endpoint with its own
-  // `promotionPackage` value rather than sharing one generic "promoted"
-  // query — see wizard-paths-style usage in Home/Explore on the client.
-  if (typeof req.query.promotionPackage === 'string' && PROMOTION_PACKAGE_IDS.includes(req.query.promotionPackage)) {
-    filter.isPromoted = true
-    filter['promotion.package'] = req.query.promotionPackage
-  }
-
   // "When" — Today / This weekend / This week / This month
   if (
     req.query.when === 'today' ||
@@ -377,20 +363,56 @@ export const listPublicEvents = tryCatchWrapper(async (req: Request, res: Respon
     Event.countDocuments(filter),
   ])
 
-  // Swap the internal `promotion` sub-document (which carries the Paystack
-  // reference and admin review status — neither of which is public) for a
-  // single `promotionPackage` field. Only set when the promotion is
-  // actually live (`isPromoted`), so a rejected/expired/pending promotion
-  // never leaks which package an organizer attempted.
-  const publicEvents = events.map(({ promotion, ...event }) => ({
-    ...event,
-    promotionPackage: event.isPromoted ? promotion?.package : undefined,
-  }))
-
   return sendTsRestSuccess(res, 200, {
     success: true,
     message: 'Events fetched',
-    body: { events: publicEvents, meta: buildPaginationMeta(page, limit, total) },
+    body: { events, meta: buildPaginationMeta(page, limit, total) },
+  })
+})
+
+const PLACEMENT_PACKAGES: Record<string, string[]> = {
+  // homepage-hero buys hero + featured + explore (spotlight) placement, so
+  // it's eligible for all three slots below — see config/promotionPackages.ts
+  // for the actual package definitions.
+  hero: ['homepage-hero'],
+  featured: ['featured', 'homepage-hero'],
+  spotlight: ['spotlight', 'homepage-hero'],
+}
+
+/**
+ * Powers the homepage Hero carousel, the homepage "Featured This Week"
+ * section, and the spotlight card at the top of Explore. Returns ONLY
+ * events actively promoted (approved + isPromoted) in a package that buys
+ * the requested placement — never backfilled with unpromoted events, so a
+ * placement with nothing currently promoted just comes back empty and the
+ * section hides itself client-side rather than showing events that weren't
+ * paid to be there.
+ *
+ * Deliberately a separate endpoint from listPublicEvents/Explore — that
+ * one shows every approved event with no filtering (promotion only
+ * affects its sort order there), which is a different contract than "give
+ * me only what's actually promoted for this placement."
+ */
+export const getSpotlightEvents = tryCatchWrapper(async (req: Request, res: Response) => {
+  const placement = ['hero', 'featured', 'spotlight'].includes(req.query.placement as string)
+    ? (req.query.placement as string)
+    : 'featured'
+  const limit = Math.min(Number(req.query.limit) || 8, 20)
+
+  const events = await Event.find({
+    status: 'approved',
+    isPromoted: true,
+    'promotion.package': { $in: PLACEMENT_PACKAGES[placement] },
+  })
+    .sort({ 'promotion.startsAt': -1 })
+    .limit(limit)
+    .populate('category', 'name slug')
+    .lean()
+
+  return sendTsRestSuccess(res, 200, {
+    success: true,
+    message: 'Spotlight events fetched',
+    body: { events },
   })
 })
 

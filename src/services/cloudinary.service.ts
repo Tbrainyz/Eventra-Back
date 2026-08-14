@@ -25,7 +25,6 @@ export class CloudinaryService {
         {
           folder: `eventra/${folder}`,
           resource_type: 'image',
-          // No transformation — upload the image exactly as received
         },
         (error, result) => {
           if (error || !result) {
@@ -39,14 +38,14 @@ export class CloudinaryService {
     })
   }
 
-  /** Uploads an avatar/lineup photo with no transformations. */
+  /** Square, face-centered crop — separate from uploadImage's 16:9 limit-crop, which is wrong for a circular avatar/headshot. `folder` lets callers keep avatars and lineup photos in separate Cloudinary folders while sharing this transform. */
   static uploadAvatar(buffer: Buffer, folder: 'avatars' | 'lineup-photos' = 'avatars'): Promise<UploadedImage> {
     return new Promise((resolve, reject) => {
       const stream = cloudinary.uploader.upload_stream(
         {
           folder: `eventra/${folder}`,
           resource_type: 'image',
-          // No transformation — upload the image exactly as received
+          transformation: [{ width: 400, height: 400, crop: 'fill', gravity: 'face' }],
         },
         (error, result) => {
           if (error || !result) {

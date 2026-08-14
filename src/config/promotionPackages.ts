@@ -42,5 +42,3 @@ export const PROMOTION_PACKAGES: IPromotionPackage[] = [
 
 export const getPromotionPackage = (id: string): IPromotionPackage | undefined =>
   PROMOTION_PACKAGES.find(pkg => pkg.id === id)
-
-export const PROMOTION_PACKAGE_IDS = PROMOTION_PACKAGES.map(pkg => pkg.id)
