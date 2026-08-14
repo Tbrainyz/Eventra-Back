@@ -25,11 +25,7 @@ export class CloudinaryService {
         {
           folder: `eventra/${folder}`,
           resource_type: 'image',
-          // 'fit' — scales down to fit within 1600x900 if the original is
-          // bigger, upscales never, and always preserves the original
-          // aspect ratio. Explicitly not a cropping mode: nothing about
-          // the image gets cut off, unlike uploadAvatar's 'fill' below.
-          transformation: [{ width: 1600, height: 900, crop: 'fit' }],
+          // No transformation — upload the image exactly as received
         },
         (error, result) => {
           if (error || !result) {
@@ -43,14 +39,14 @@ export class CloudinaryService {
     })
   }
 
-  /** Square, face-centered crop — separate from uploadImage's non-cropping resize, which is wrong for a circular avatar/headshot. `folder` lets callers keep avatars and lineup photos in separate Cloudinary folders while sharing this transform. */
+  /** Uploads an avatar/lineup photo with no transformations. */
   static uploadAvatar(buffer: Buffer, folder: 'avatars' | 'lineup-photos' = 'avatars'): Promise<UploadedImage> {
     return new Promise((resolve, reject) => {
       const stream = cloudinary.uploader.upload_stream(
         {
           folder: `eventra/${folder}`,
           resource_type: 'image',
-          transformation: [{ width: 400, height: 400, crop: 'fill', gravity: 'face' }],
+          // No transformation — upload the image exactly as received
         },
         (error, result) => {
           if (error || !result) {
