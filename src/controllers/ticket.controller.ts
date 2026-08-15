@@ -369,10 +369,24 @@ export const myTickets = tryCatchWrapper(async (req: Request, res: Response) => 
     .sort({ createdAt: -1 })
     .lean()
 
+  // Attendees have no other way to tell "I already asked for a refund on
+  // this" from "nothing's happened yet" — requestRefund below rejects a
+  // second request for the same ticket with a 409, but the client had
+  // nothing to show for that beyond a silently-failed click, since the
+  // ticket's own status stays 'valid' until an admin actually approves it.
+  const paidTicketIds = tickets.filter(t => t.type === 'paid').map(t => t._id)
+  const pendingRequests =
+    paidTicketIds.length > 0
+      ? await RefundRequest.find({ ticket: { $in: paidTicketIds }, status: { $in: ['pending', 'approved'] } })
+          .select('ticket')
+          .lean()
+      : []
+  const ticketsWithPendingRefund = new Set(pendingRequests.map(r => r.ticket.toString()))
+
   return sendTsRestSuccess(res, 200, {
     success: true,
     message: 'Tickets fetched',
-    body: tickets,
+    body: tickets.map(t => ({ ...t, hasPendingRefundRequest: ticketsWithPendingRefund.has(t._id.toString()) })),
   })
 })
 
