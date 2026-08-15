@@ -636,3 +636,67 @@ export const verifyAccountTemplate = (name: string, code: string, actionLink?: s
     "This code expires in 15 minutes — don't miss the show.",
     code
   )
+
+// Below: organizer-facing notification emails, each gated behind its own
+// toggle on the Settings page (see IOrganizerNotificationPreferences on the
+// User model) — newSalesRsvps, payoutConfirmations, dailySalesSummary.
+
+export const newSaleNotificationTemplate = (name: string, eventTitle: string, attendeeName: string, ticketLabel: string, amountLabel: string) =>
+  baseLayout(
+    `New ${amountLabel === 'Free RSVP' ? 'RSVP' : 'sale'} for ${eventTitle}`,
+    name,
+    `
+      ${attendeeName} just ${amountLabel === 'Free RSVP' ? 'reserved a spot for' : 'bought a ticket to'}
+      <strong style="color: ${INK};">${eventTitle}</strong>.
+
+      <div class="ticket-line">
+        <strong style="color: ${INK};">Ticket:</strong> ${ticketLabel}
+      </div>
+      <div class="ticket-line">
+        <strong style="color: ${INK};">Amount:</strong> ${amountLabel}
+      </div>
+    `
+  )
+
+export const payoutConfirmationTemplate = (name: string, eventTitle: string, amountLabel: string) =>
+  baseLayout(
+    'Payout sent',
+    name,
+    `
+      A payout for <strong style="color: ${INK};">${eventTitle}</strong> is on its way to your bank account.
+
+      <div class="ticket-line">
+        <strong style="color: ${INK};">Amount:</strong> ${amountLabel}
+      </div>
+
+      It typically lands within a few business days, depending on your bank.
+    `
+  )
+
+export const dailySalesSummaryTemplate = (
+  name: string,
+  dateLabel: string,
+  rows: { eventTitle: string; ticketsSold: number; revenueLabel: string }[],
+  totalRevenueLabel: string
+) =>
+  baseLayout(
+    `Your sales summary — ${dateLabel}`,
+    name,
+    `
+      Here's how your events did in the last 24 hours.
+
+      ${rows
+        .map(
+          row => `
+            <div class="ticket-line">
+              <strong style="color: ${INK};">${row.eventTitle}:</strong> ${row.ticketsSold} sold — ${row.revenueLabel}
+            </div>
+          `
+        )
+        .join('')}
+
+      <div class="ticket-line">
+        <strong style="color: ${INK};">Total:</strong> ${totalRevenueLabel}
+      </div>
+    `
+  )

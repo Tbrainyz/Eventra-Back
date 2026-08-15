@@ -9,6 +9,7 @@ import Order from '../models/order.js'
 import User from '../models/user.js'
 import { PaystackService } from '../services/paystack.service.js'
 import { TicketService } from '../services/ticket.service.js'
+import { EmailService } from '../services/email.service.js'
 import type { AttendeeInfo } from '../lib/attendee.js'
 
 /**
@@ -119,6 +120,18 @@ const handleTransferOutcome = async (event: string, reference: string): Promise<
     order.payoutStatus = 'paid'
     order.payoutAt = new Date()
     await order.save()
+
+    const eventDoc = await Event.findById(order.event).select('title organizer')
+    if (eventDoc) {
+      const organizer = await User.findById(eventDoc.organizer)
+      // Opt-in — defaults to off, see organizerNotificationPreferences on
+      // the User model and the "Payout confirmations" toggle on Settings.
+      if (organizer && organizer.organizerNotificationPreferences?.payoutConfirmations) {
+        EmailService.sendPayoutConfirmationEmail(organizer, eventDoc.title, `₦${order.organizerEarnings.toLocaleString('en-NG')}`).catch(
+          error => logger.error({ err: error }, `Payout-confirmation email failed for order ${order._id}`)
+        )
+      }
+    }
   } else {
     // transfer.failed / transfer.reversed — leave it for the next payout cron run to retry.
     order.payoutStatus = 'pending'

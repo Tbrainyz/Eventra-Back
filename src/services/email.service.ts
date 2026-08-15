@@ -1,12 +1,15 @@
 import sendEmail from '../email/send-email.js'
 import {
+  dailySalesSummaryTemplate,
   eventApprovedTemplate,
   eventCancelledTemplate,
   eventPostponedTemplate,
   eventRejectedTemplate,
   guestTicketAccessTemplate,
+  newSaleNotificationTemplate,
   organizerApprovedTemplate,
   organizerRejectedTemplate,
+  payoutConfirmationTemplate,
   refundProcessedTemplate,
   resetPasswordTemplate,
   ticketConfirmationTemplate,
@@ -220,6 +223,50 @@ export class EmailService {
       email: user.email,
       subject: `${eventTitle} has a new date`,
       message: eventPostponedTemplate(user.fullname, eventTitle, oldDateLabel, newDateLabel, reason),
+    })
+    return { success: result.success }
+  }
+
+  // Organizer-facing — gated behind organizerNotificationPreferences on the
+  // User model (see notification-preferences on the Settings page). Callers
+  // are responsible for checking the relevant preference before calling
+  // these; kept that way rather than checked inside here so the check sits
+  // next to where the organizer doc is already loaded, not hidden in here.
+
+  static async sendNewSaleNotificationEmail(
+    organizer: any,
+    eventTitle: string,
+    attendeeName: string,
+    ticketLabel: string,
+    amountLabel: string
+  ): Promise<{ success: boolean }> {
+    const result = await sendEmail({
+      email: organizer.email,
+      subject: `New ${amountLabel === 'Free RSVP' ? 'RSVP' : 'sale'} for ${eventTitle}`,
+      message: newSaleNotificationTemplate(organizer.fullname, eventTitle, attendeeName, ticketLabel, amountLabel),
+    })
+    return { success: result.success }
+  }
+
+  static async sendPayoutConfirmationEmail(organizer: any, eventTitle: string, amountLabel: string): Promise<{ success: boolean }> {
+    const result = await sendEmail({
+      email: organizer.email,
+      subject: 'Payout sent',
+      message: payoutConfirmationTemplate(organizer.fullname, eventTitle, amountLabel),
+    })
+    return { success: result.success }
+  }
+
+  static async sendDailySalesSummaryEmail(
+    organizer: any,
+    dateLabel: string,
+    rows: { eventTitle: string; ticketsSold: number; revenueLabel: string }[],
+    totalRevenueLabel: string
+  ): Promise<{ success: boolean }> {
+    const result = await sendEmail({
+      email: organizer.email,
+      subject: `Your sales summary — ${dateLabel}`,
+      message: dailySalesSummaryTemplate(organizer.fullname, dateLabel, rows, totalRevenueLabel),
     })
     return { success: result.success }
   }

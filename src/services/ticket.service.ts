@@ -5,6 +5,7 @@ import Event from '../models/event.js'
 import { IOrder } from '../models/order.js'
 import Ticket, { ITicket } from '../models/ticket.js'
 import TicketType from '../models/ticketType.js'
+import User from '../models/user.js'
 import { AttendeeInfo } from '../lib/attendee.js'
 import { EmailService } from './email.service.js'
 
@@ -98,7 +99,7 @@ export class TicketService {
     }
 
     if (eventSnapshot) {
-      const evt = eventSnapshot as { title: string; startDate: Date; venue: { name: string; city: string } }
+      const evt = eventSnapshot as { title: string; startDate: Date; venue: { name: string; city: string } } & { organizer?: mongoose.Types.ObjectId }
       EmailService.sendTicketConfirmationEmail({
         user: attendee,
         eventTitle: evt.title,
@@ -106,9 +107,33 @@ export class TicketService {
         venueLabel: formatVenueLabel(evt.venue),
         ticketCodes: issuedTickets.map(t => t.code),
       }).catch(error => logger.error({ err: error }, `Ticket confirmation email failed for RSVP on event ${eventId}`))
+
+      this.notifyOrganizerOfSale(evt.organizer, evt.title, attendee.fullname, `${issuedTickets.length} guest(s)`, 'Free RSVP').catch(
+        error => logger.error({ err: error }, `New-RSVP organizer notification failed for event ${eventId}`)
+      )
     }
 
     return issuedTickets
+  }
+
+  /**
+   * Emails the organizer that a sale/RSVP just happened — opt-in, gated by
+   * organizerNotificationPreferences.newSalesRsvps (defaults to off, same
+   * as every other organizer notification toggle on Settings). Kept as its
+   * own helper since both issuance paths (free RSVP and paid checkout)
+   * need it.
+   */
+  private static async notifyOrganizerOfSale(
+    organizerId: mongoose.Types.ObjectId | undefined,
+    eventTitle: string,
+    attendeeName: string,
+    ticketLabel: string,
+    amountLabel: string
+  ): Promise<void> {
+    if (!organizerId) return
+    const organizer = await User.findById(organizerId)
+    if (!organizer?.organizerNotificationPreferences?.newSalesRsvps) return
+    await EmailService.sendNewSaleNotificationEmail(organizer, eventTitle, attendeeName, ticketLabel, amountLabel)
   }
 
   /**
@@ -186,6 +211,15 @@ export class TicketService {
           venueLabel: formatVenueLabel(event.venue),
           ticketCodes: issuedTickets.map(t => t.code),
         }).catch(error => logger.error({ err: error }, `Ticket confirmation email failed for order ${order._id}`))
+
+        const totalQuantity = order.items.reduce((sum, item) => sum + item.quantity, 0)
+        this.notifyOrganizerOfSale(
+          event.organizer,
+          event.title,
+          attendee.fullname,
+          `${totalQuantity} ticket(s)`,
+          `₦${order.total.toLocaleString('en-NG')}`
+        ).catch(error => logger.error({ err: error }, `New-sale organizer notification failed for order ${order._id}`))
       }
 
       return issuedTickets

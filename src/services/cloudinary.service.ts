@@ -25,6 +25,9 @@ export class CloudinaryService {
         {
           folder: `eventra/${folder}`,
           resource_type: 'image',
+          // Keeps stored images from becoming a runaway cost/storage surface —
+          // large uploads are resized down, never upscaled.
+          transformation: [{ width: 1600, height: 900, crop: 'limit' }],
         },
         (error, result) => {
           if (error || !result) {

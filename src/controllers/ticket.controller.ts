@@ -533,7 +533,16 @@ export const listEventAttendees = tryCatchWrapper(async (req: Request, res: Resp
   }
 
   const [tickets, total, checkedInCount] = await Promise.all([
-    Ticket.find(filter).populate('ticketType', 'name').sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+    Ticket.find(filter)
+      .populate('ticketType', 'name')
+      // Only set for registered buyers (guest checkouts have no `attendee`
+      // user to link) — the client falls back to initials when this is
+      // empty, same as it already does everywhere else avatars show up.
+      .populate('attendee', 'avatarUrl')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
     Ticket.countDocuments(filter),
     Ticket.countDocuments({ ...baseFilter, status: 'checked_in' }),
   ])

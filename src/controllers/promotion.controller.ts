@@ -64,7 +64,7 @@ export const listMyPromotions = tryCatchWrapper(async (req: Request, res: Respon
   )
 
   const events = await Event.find({ organizer: req.session.userId, promotion: { $exists: true } })
-    .select('title promotion')
+    .select('title coverImage promotion')
     .sort({ 'promotion.paidAt': -1, 'promotion.startsAt': -1 })
     .lean()
 
@@ -79,6 +79,7 @@ export const listMyPromotions = tryCatchWrapper(async (req: Request, res: Respon
     return {
       eventId: event._id,
       eventTitle: event.title,
+      eventCoverImage: event.coverImage,
       packageId: promotion.package,
       packageLabel: pkg?.label ?? promotion.package,
       placementLabel: pkg?.placementLabel,

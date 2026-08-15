@@ -404,7 +404,7 @@ const EVENT_ROW_STATUS: Record<number, string> = { 0: 'held', 1: 'ready', 2: 'pa
  */
 async function buildEarningsByEvent(organizerId: string) {
   const events = await Event.find({ organizer: organizerId })
-    .select('title type')
+    .select('title type coverImage')
     .sort({ createdAt: -1 })
     .lean()
 
@@ -429,13 +429,14 @@ async function buildEarningsByEvent(organizerId: string) {
       if (!row) {
         // No paid orders for this event yet — either free, or nothing sold.
         return event.type === 'free'
-          ? { eventId: event._id, eventTitle: event.title, grossSales: 0, commission: 0, earnings: 0, status: 'free_no_payout' }
+          ? { eventId: event._id, eventTitle: event.title, coverImage: event.coverImage, grossSales: 0, commission: 0, earnings: 0, status: 'free_no_payout' }
           : null
       }
       const worstRank = Math.min(...row.statuses.map((s: string) => PAYOUT_STATUS_RANK[s] ?? 0))
       return {
         eventId: event._id,
         eventTitle: event.title,
+        coverImage: event.coverImage,
         grossSales: row.grossSales,
         commission: row.commission,
         earnings: row.earnings,

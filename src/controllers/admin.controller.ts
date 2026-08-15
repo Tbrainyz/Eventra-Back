@@ -220,7 +220,9 @@ export const approveEvent = tryCatchWrapper(async (req: Request, res: Response) 
 
   User.findById(event.organizer)
     .then(organizer => {
-      if (organizer) {
+      // Opt-in — defaults to off, see organizerNotificationPreferences on
+      // the User model and the "Event approvals" toggle on Settings.
+      if (organizer && organizer.organizerNotificationPreferences?.eventApprovals) {
         EmailService.sendEventApprovedEmail(organizer, event.title).catch(error =>
           logger.error({ err: error }, `Event-approved email failed for event ${event._id}`)
         )
@@ -250,7 +252,7 @@ export const rejectEvent = tryCatchWrapper(async (req: Request, res: Response) =
 
   User.findById(event.organizer)
     .then(organizer => {
-      if (organizer) {
+      if (organizer && organizer.organizerNotificationPreferences?.eventApprovals) {
         EmailService.sendEventRejectedEmail(organizer, event.title, reason).catch(error =>
           logger.error({ err: error }, `Event-rejected email failed for event ${event._id}`)
         )

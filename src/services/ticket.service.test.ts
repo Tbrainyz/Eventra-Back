@@ -12,6 +12,10 @@ import Category from '../models/category.js'
 vi.mock('./email.service.js', () => ({
   EmailService: {
     sendTicketConfirmationEmail: vi.fn().mockResolvedValue({ success: true }),
+    // notifyOrganizerOfSale only calls this when the organizer has opted
+    // in (newSalesRsvps), which no test fixture here does — stubbed
+    // anyway so a future test that does opt in doesn't hit the network.
+    sendNewSaleNotificationEmail: vi.fn().mockResolvedValue({ success: true }),
   },
 }))
 
