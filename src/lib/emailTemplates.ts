@@ -163,8 +163,13 @@ const baseLayout = (
           }
 
           .code-digits {
-            display: inline-flex;
-            gap: 10px;
+            /* inline-block, not inline-flex — flexbox support is
+               inconsistent across email clients (Outlook desktop doesn't
+               support it at all), which is why this wasn't reliably
+               centering. inline-block + text-align on the parent is the
+               standard, universally-supported way to center a row of boxes
+               in HTML email. */
+            display: inline-block;
             background-color: ${BRAND_MINT};
             padding: 16px 24px;
             border-radius: 16px;
@@ -172,18 +177,24 @@ const baseLayout = (
           }
 
           .code-digit {
+            display: inline-block;
             width: 48px;
             height: 56px;
+            line-height: 56px;
             background-color: #FFFFFF;
             border-radius: 12px;
             border: 2px solid #CFE8DF;
-            display: flex;
-            align-items: center;
-            justify-content: center;
             font-size: 28px;
             font-weight: 800;
             color: ${BRAND_GREEN};
             letter-spacing: 2px;
+            text-align: center;
+            vertical-align: middle;
+            margin-right: 10px;
+          }
+
+          .code-digit:last-child {
+            margin-right: 0;
           }
 
           .expiry-text {

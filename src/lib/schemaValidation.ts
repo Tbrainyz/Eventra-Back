@@ -93,10 +93,10 @@ const venueSchema = z.object({
 
 export const lineupMemberSchema = z.object({
   name: z.string().trim().min(1, 'name is required'),
-  // Optional — the event-creation wizard's Line-Up step only collects an
-  // act/session name, no separate role. The dedicated lineup editor
-  // (organizer/events/:id/lineup) still lets an organizer add a role
-  // afterward for acts that want one billed.
+  // Optional — collected directly in the event-creation wizard's Line-Up
+  // step now, same as name/imageUrl, but still not required: an organizer
+  // can add just a name and fill in role/photo later from the dedicated
+  // lineup editor (organizer/events/:id/lineup).
   role: z.string().trim().optional(),
   imageUrl: z.string().trim().url().optional(),
 })
