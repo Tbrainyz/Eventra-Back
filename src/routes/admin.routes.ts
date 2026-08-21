@@ -4,6 +4,7 @@ import {
   approveEventPromotion,
   approveOrganizer,
   approveRefundRequest,
+  getAdminOverview,
   getPlatformStats,
   listPendingEvents,
   listPendingOrganizers,
@@ -27,6 +28,7 @@ router.use(verifySession, requireAdmin)
 
 // Platform stats
 router.get('/stats', getPlatformStats)
+router.get('/overview', getAdminOverview)
 
 // User management
 router.get('/users', listUsers)
