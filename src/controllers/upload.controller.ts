@@ -61,3 +61,25 @@ export const uploadGalleryPhoto = tryCatchWrapper(async (req: Request, res: Resp
     return sendTsRestError(res, 502, error.message || 'Image upload failed')
   }
 })
+
+// Not tied to a specific document field (CAC certificate vs director ID vs
+// proof of address) — the client decides which organizerProfile field to
+// save the returned URL into when it calls PATCH /organizers/profile
+// afterward, same two-step pattern as uploadEventCoverImage + updateEvent.
+export const uploadOrganizerDocument = tryCatchWrapper(async (req: Request, res: Response) => {
+  if (!req.file) {
+    return sendTsRestError(res, 400, 'No file provided (expected field name "document")')
+  }
+
+  try {
+    const uploaded = await CloudinaryService.uploadDocument(req.file.buffer, 'organizer-documents')
+
+    return sendTsRestSuccess(res, 201, {
+      success: true,
+      message: 'Document uploaded',
+      body: uploaded,
+    })
+  } catch (error: any) {
+    return sendTsRestError(res, 502, error.message || 'Document upload failed')
+  }
+})

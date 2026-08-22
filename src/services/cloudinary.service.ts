@@ -62,6 +62,31 @@ export class CloudinaryService {
     })
   }
 
+  /**
+   * Verification documents (CAC certificate, director ID, proof of
+   * address) — PDFs or photos of physical documents, so no crop
+   * transform makes sense here the way it does for uploadImage/
+   * uploadAvatar; a legal document getting silently cropped would be a
+   * real problem, not a cosmetic one. `resource_type: 'auto'` lets
+   * Cloudinary store a PDF as a PDF and an image as an image from the
+   * same upload path, since organizers may submit either.
+   */
+  static uploadDocument(buffer: Buffer, folder: string): Promise<UploadedImage> {
+    return new Promise((resolve, reject) => {
+      const stream = cloudinary.uploader.upload_stream(
+        { folder: `eventra/${folder}`, resource_type: 'auto' },
+        (error, result) => {
+          if (error || !result) {
+            logger.error({ err: error }, 'Cloudinary document upload failed')
+            return reject(new Error(error?.message || 'Document upload failed'))
+          }
+          resolve({ url: result.secure_url, publicId: result.public_id })
+        }
+      )
+      stream.end(buffer)
+    })
+  }
+
   static async deleteImage(publicId: string): Promise<void> {
     try {
       await cloudinary.uploader.destroy(publicId)

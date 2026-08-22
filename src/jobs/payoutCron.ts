@@ -7,10 +7,44 @@ import { PaystackService } from '../services/paystack.service.js'
 const PAYOUT_DELAY_DAYS = 3
 
 /**
+ * Initiates the actual Paystack transfer for one paid order and flips it to
+ * 'processing' (payment.controller.ts's webhook is what moves it to 'paid'
+ * once Paystack confirms with a transfer.success event). Pulled out of
+ * processDuePayouts so admin.controller.ts's manual "Release" action can
+ * run the exact same transfer path instead of a second, possibly-diverging
+ * copy of this logic — the only difference between the cron and a manual
+ * release is which orders get selected, not what happens to each one.
+ */
+export async function initiateOrderPayout(order: {
+  _id: any
+  organizerEarnings: number
+  eventDoc: { _id: any; organizer: any; title?: string }
+}): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const organizer = await User.findById(order.eventDoc.organizer)
+  const recipientCode = organizer?.organizerProfile?.paystackRecipientCode
+
+  if (!organizer || !recipientCode) {
+    return { ok: false, reason: 'Organizer has no Paystack recipient on file' }
+  }
+
+  try {
+    await PaystackService.initiateTransfer({
+      amountKobo: Math.round(order.organizerEarnings * 100),
+      recipientCode,
+      reason: `Eventra payout — ${order.eventDoc.title ?? 'event'}`,
+      reference: `PAYOUT-${order._id}`,
+    })
+
+    await Order.updateOne({ _id: order._id }, { $set: { payoutStatus: 'processing' } })
+    return { ok: true }
+  } catch (error: any) {
+    return { ok: false, reason: error.message || 'Transfer failed' }
+  }
+}
+
+/**
  * Finds paid orders for events that happened at least PAYOUT_DELAY_DAYS ago
  * and initiates a Paystack transfer to the organizer for each.
- * A transfer is only "processing" here — payment.controller.ts's webhook
- * flips it to 'paid' once Paystack confirms with a transfer.success event.
  * Called by a scheduled cron job, same pattern as the email cron.
  */
 export const processDuePayouts = async (): Promise<{ processed: number; initiated: number; skipped: number }> => {
@@ -33,27 +67,11 @@ export const processDuePayouts = async (): Promise<{ processed: number; initiate
   }
 
   for (const order of dueOrders) {
-    try {
-      const organizer = await User.findById(order.eventDoc.organizer)
-      const recipientCode = organizer?.organizerProfile?.paystackRecipientCode
-
-      if (!organizer || !recipientCode) {
-        logger.error(`Payout cron: organizer ${order.eventDoc.organizer} has no Paystack recipient — skipping order ${order._id}`)
-        skipped++
-        continue
-      }
-
-      await PaystackService.initiateTransfer({
-        amountKobo: Math.round(order.organizerEarnings * 100),
-        recipientCode,
-        reason: `Eventra payout — ${order.eventDoc.title}`,
-        reference: `PAYOUT-${order._id}`,
-      })
-
-      await Order.updateOne({ _id: order._id }, { $set: { payoutStatus: 'processing' } })
+    const result = await initiateOrderPayout(order)
+    if (result.ok) {
       initiated++
-    } catch (error: any) {
-      logger.error({ err: error }, `Payout cron: transfer failed for order ${order._id}: ${error.message}`)
+    } else {
+      logger.error(`Payout cron: ${result.reason} — skipping order ${order._id}`)
       skipped++
     }
   }

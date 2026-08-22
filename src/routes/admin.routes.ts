@@ -4,8 +4,20 @@ import {
   approveEventPromotion,
   approveOrganizer,
   approveRefundRequest,
+  flagEvent,
   getAdminOverview,
+  getAdminPayoutsOverview,
+  getAdminRevenue,
+  getAttendeeDetailForAdmin,
+  getEventDetailForAdmin,
+  getOrganizerDetailForAdmin,
   getPlatformStats,
+  getRefundRequestDetail,
+  listAttendeesForAdmin,
+  listAwaitingPayouts,
+  listEventsForAdmin,
+  listOrganizersForAdmin,
+  listPayoutHistory,
   listPendingEvents,
   listPendingOrganizers,
   listRefundRequests,
@@ -14,7 +26,10 @@ import {
   rejectEventPromotion,
   rejectOrganizer,
   rejectRefundRequest,
+  releaseEventPayout,
+  removeEvent,
   suspendUser,
+  unflagEvent,
   unsuspendUser,
 } from '../controllers/admin.controller.js'
 import { createCategory, listAllCategories, updateCategory } from '../controllers/category.controller.js'
@@ -30,20 +45,33 @@ router.use(verifySession, requireAdmin)
 router.get('/stats', getPlatformStats)
 router.get('/overview', getAdminOverview)
 
-// User management
+// Generic user list (any role) — kept for internal/cross-role lookups.
+// The Users management page uses /attendees below instead, since it needs
+// per-attendee order/spend stats this endpoint doesn't compute.
 router.get('/users', listUsers)
 router.patch('/users/:id/suspend', suspendUser)
 router.patch('/users/:id/unsuspend', unsuspendUser)
 
-// Organizer approval
+// Attendee management (Manage > Users)
+router.get('/attendees', listAttendeesForAdmin)
+router.get('/attendees/:id', getAttendeeDetailForAdmin)
+
+// Organizer approval + management
 router.get('/organizers/pending', listPendingOrganizers)
+router.get('/organizers', listOrganizersForAdmin)
+router.get('/organizers/:id', getOrganizerDetailForAdmin)
 router.patch('/organizers/:id/approve', approveOrganizer)
 router.patch('/organizers/:id/reject', rejectOrganizer)
 
-// Event approval
+// Event approval + management
 router.get('/events/pending', listPendingEvents)
+router.get('/events', listEventsForAdmin)
+router.get('/events/:id', getEventDetailForAdmin)
 router.patch('/events/:id/approve', approveEvent)
 router.patch('/events/:id/reject', validateFormData(rejectEventSchema), rejectEvent)
+router.patch('/events/:id/flag', flagEvent)
+router.patch('/events/:id/unflag', unflagEvent)
+router.patch('/events/:id/remove', removeEvent)
 
 // Promotion approval
 router.patch('/events/:id/promotion/approve', approveEventPromotion)
@@ -51,8 +79,18 @@ router.patch('/events/:id/promotion/reject', rejectEventPromotion)
 
 // Refund requests
 router.get('/refund-requests', listRefundRequests)
+router.get('/refund-requests/:id', getRefundRequestDetail)
 router.patch('/refund-requests/:id/approve', approveRefundRequest)
 router.patch('/refund-requests/:id/reject', rejectRefundRequest)
+
+// Revenue (Platform > Revenue)
+router.get('/revenue', getAdminRevenue)
+
+// Payouts (Platform > Payouts)
+router.get('/payouts/overview', getAdminPayoutsOverview)
+router.get('/payouts/awaiting', listAwaitingPayouts)
+router.get('/payouts/history', listPayoutHistory)
+router.post('/payouts/:organizerId/:eventId/release', releaseEventPayout)
 
 // Categories
 router.get('/categories', listAllCategories)

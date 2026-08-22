@@ -70,6 +70,9 @@ export const organizerProfileSchema = z.object({
   accountNumber: z.string().trim().min(10).max(10).optional(),
   accountName: z.string().trim().min(2).optional(),
   agreedToTerms: z.boolean().optional(),
+  cacCertificateUrl: z.string().trim().url().optional(),
+  directorIdUrl: z.string().trim().url().optional(),
+  proofOfAddressUrl: z.string().trim().url().optional(),
 })
 
 export const organizerNotificationPreferencesSchema = z.object({

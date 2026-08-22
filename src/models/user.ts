@@ -20,6 +20,14 @@ export interface IOrganizerProfile {
   paystackRecipientCode?: string
   agreedToTerms?: boolean
   submittedAt?: Date
+  // Verification documents — collected in the onboarding wizard's
+  // Verification step (between Bank and Review). Just Cloudinary URLs,
+  // same pattern as Event.coverImage; nothing structured about them on
+  // this side. Admin's organizer-review page reads these directly rather
+  // than a separate endpoint.
+  cacCertificateUrl?: string
+  directorIdUrl?: string
+  proofOfAddressUrl?: string
 }
 
 export interface INotificationPreferences {
@@ -85,6 +93,9 @@ const OrganizerProfileSchema = new Schema<IOrganizerProfile>(
     paystackRecipientCode: { type: String, trim: true },
     agreedToTerms: { type: Boolean, default: false },
     submittedAt: { type: Date },
+    cacCertificateUrl: { type: String, trim: true },
+    directorIdUrl: { type: String, trim: true },
+    proofOfAddressUrl: { type: String, trim: true },
   },
   { _id: false }
 )

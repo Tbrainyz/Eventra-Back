@@ -68,10 +68,18 @@ export interface IEvent extends Document {
   // different event categories phrase this differently enough that a
   // fixed enum would fight them.
   agePolicy?: string
-  status: 'draft' | 'pending_approval' | 'approved' | 'rejected' | 'cancelled' | 'postponed'
+  status: 'draft' | 'pending_approval' | 'approved' | 'rejected' | 'cancelled' | 'postponed' | 'removed'
   rejectionReason?: string
   isPromoted: boolean
   promotion?: IEventPromotion
+  // Admin-set moderation flag — independent of `status`. A flagged event
+  // stays live (still bookable) while under review; only `status:
+  // 'removed'` actually takes it down. Kept as its own boolean rather than
+  // folded into status so "flagged" and "removed" aren't mutually
+  // exclusive states an admin has to choose between.
+  flagged: boolean
+  flagReason?: string
+  removedReason?: string
   reservationsCount: number
   ticketsSoldCount: number
   revenueTotal: number
@@ -209,7 +217,7 @@ const EventSchema = new Schema<IEvent>(
     },
     status: {
       type: String,
-      enum: ['draft', 'pending_approval', 'approved', 'rejected', 'cancelled', 'postponed'],
+      enum: ['draft', 'pending_approval', 'approved', 'rejected', 'cancelled', 'postponed', 'removed'],
       default: 'draft',
     },
     rejectionReason: {
@@ -219,6 +227,18 @@ const EventSchema = new Schema<IEvent>(
     isPromoted: {
       type: Boolean,
       default: false,
+    },
+    flagged: {
+      type: Boolean,
+      default: false,
+    },
+    flagReason: {
+      type: String,
+      trim: true,
+    },
+    removedReason: {
+      type: String,
+      trim: true,
     },
     promotion: {
       type: EventPromotionSchema,

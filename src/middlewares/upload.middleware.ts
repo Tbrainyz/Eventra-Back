@@ -19,3 +19,19 @@ export const imageUpload = multer({
     callback(null, true)
   },
 })
+
+const ALLOWED_DOCUMENT_MIME_TYPES = ['application/pdf', 'image/jpeg', 'image/png']
+const MAX_DOCUMENT_SIZE_BYTES = 10 * 1024 * 1024 // 10MB — scans of physical documents run larger than a typical photo
+
+/** Verification documents (CAC certificate, director ID, proof of address) — PDF or photo, unlike imageUpload above. */
+export const documentUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_DOCUMENT_SIZE_BYTES },
+  fileFilter: (req, file, callback) => {
+    if (!ALLOWED_DOCUMENT_MIME_TYPES.includes(file.mimetype)) {
+      callback(new Error('Only PDF, JPEG, or PNG files are allowed'))
+      return
+    }
+    callback(null, true)
+  },
+})
