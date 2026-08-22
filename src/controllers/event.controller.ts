@@ -6,9 +6,11 @@ import { buildPaginationMeta, escapeRegExp, getDateRangeForWhen, getPagination, 
 import Category from '../models/category.js'
 import Event from '../models/event.js'
 import Order from '../models/order.js'
+import Report from '../models/report.js'
 import Ticket from '../models/ticket.js'
 import TicketType from '../models/ticketType.js'
 import User from '../models/user.js'
+import { getPlatformSettings } from '../lib/platformSettings.js'
 import { PaystackService } from '../services/paystack.service.js'
 import { EmailService } from '../services/email.service.js'
 import logger from '../config/logger.js'
@@ -35,12 +37,15 @@ export const createEvent = tryCatchWrapper(async (req: Request, res: Response) =
   // actually ends up with.
   const slug = `${rest.title ? slugify(rest.title) : 'untitled-event'}-${crypto.randomBytes(3).toString('hex')}`
 
+  const settings = await getPlatformSettings()
+
   const event = await Event.create({
     ...rest,
     ...(category ? { category: category._id } : {}),
     slug,
     organizer: req.session.userId,
     status: 'draft',
+    commissionRatePercent: settings.commissionRatePercent,
   })
 
   return sendTsRestSuccess(res, 201, {
@@ -159,6 +164,20 @@ export const submitEventForApproval = tryCatchWrapper(async (req: Request, res: 
     const ticketTypeCount = await TicketType.countDocuments({ event: event._id })
     if (ticketTypeCount === 0) {
       return sendTsRestError(res, 400, 'Add at least one ticket type before submitting a paid event')
+    }
+
+    const settings = await getPlatformSettings()
+    if (settings.autoApproveEvents) {
+      event.status = 'approved'
+      event.rejectionReason = undefined
+      event.publishedAt = new Date()
+      await event.save()
+
+      return sendTsRestSuccess(res, 200, {
+        success: true,
+        message: 'Your event is live',
+        body: event.toObject(),
+      })
     }
 
     event.status = 'pending_approval'
@@ -669,5 +688,53 @@ export const getEventBySlug = tryCatchWrapper(async (req: Request, res: Response
     success: true,
     message: 'Event fetched',
     body: { ...event, ticketTypes },
+  })
+})
+
+/**
+ * Attendee-facing report — the "Report" trigger on the public event page
+ * (both "report this event" and "report the organizer" share this one
+ * endpoint, distinguished by `targetType` in the body, since both start
+ * from the same place: an attendee looking at an event page). Feeds the
+ * admin Reports > Flags queue (see listFlags in admin.controller.ts) —
+ * there's no separate "flag" action; an event/organizer is just flagged
+ * once it has an open report against it.
+ */
+export const reportEvent = tryCatchWrapper(async (req: Request, res: Response) => {
+  const { id } = req.params
+  const { targetType, reason } = req.body as { targetType: 'event' | 'organizer'; reason: string }
+
+  const event = await Event.findById(id).select('title organizer flagged')
+  if (!event) {
+    return sendTsRestError(res, 404, 'Event not found')
+  }
+
+  const reporter = await User.findById(req.session.userId).select('fullname').lean()
+  if (!reporter) {
+    return sendTsRestError(res, 401, 'Please log in to report this')
+  }
+
+  await Report.create({
+    targetType,
+    event: event._id,
+    organizer: targetType === 'organizer' ? event.organizer : undefined,
+    reportedBy: reporter._id,
+    reporterName: reporter.fullname,
+    reason,
+  })
+
+  // Auto-flags the event on its very first report so it shows up in the
+  // admin Flags queue immediately — an admin dismissing it clears this the
+  // same way dismissEventFlag does. Organizer reports don't touch the
+  // event's own flagged state; they surface separately via listFlags'
+  // organizer grouping.
+  if (targetType === 'event' && !event.flagged) {
+    await Event.updateOne({ _id: event._id }, { flagged: true })
+  }
+
+  return sendTsRestSuccess(res, 201, {
+    success: true,
+    message: 'Thanks — our team will take a look',
+    body: { received: true },
   })
 })

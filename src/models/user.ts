@@ -59,6 +59,12 @@ export interface IUser extends Document {
   notificationPreferences: INotificationPreferences
   organizerNotificationPreferences: IOrganizerNotificationPreferences
   role: 'attendee' | 'organizer' | 'admin'
+  // Display-only sub-role for the "Admin, Teams & Roles" table on Settings
+  // — nothing in requireAdmin or any route currently checks this, so it
+  // grants no additional or reduced access on its own. Only meaningful
+  // when role === 'admin'. Treat as 'admin' when unset (every admin
+  // account created before this field existed).
+  adminRole?: 'owner' | 'admin' | 'support'
   isVerified: boolean
   isSuspended: boolean
   emailVerificationOTP?: string
@@ -168,6 +174,10 @@ const UserSchema = new Schema<IUser>(
       type: String,
       enum: ['attendee', 'organizer', 'admin'],
       default: 'attendee',
+    },
+    adminRole: {
+      type: String,
+      enum: ['owner', 'admin', 'support'],
     },
     isVerified: {
       type: Boolean,

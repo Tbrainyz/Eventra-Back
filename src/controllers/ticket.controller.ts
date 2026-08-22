@@ -160,7 +160,7 @@ export const initializeCheckout = tryCatchWrapper(async (req: Request, res: Resp
     orderItems.push({ ticketType: ticketType._id, quantity: item.quantity, unitPrice: ticketType.price })
   }
 
-  const totals = calculateOrderTotals(orderItems)
+  const totals = calculateOrderTotals(orderItems, event.commissionRatePercent)
   const reference = `EVT-${event._id.toString().slice(-6)}-${randomUUID()}`
 
   const order = await Order.create({

@@ -229,3 +229,21 @@ export const postponeEventSchema = z.object({
 export const cancelEventSchema = z.object({
   reason: z.string().trim().min(3, 'A reason is required').max(500),
 })
+
+export const reportEventSchema = z.object({
+  targetType: z.enum(['event', 'organizer']),
+  reason: z.string().trim().min(10, 'Give a bit more detail (at least 10 characters)').max(500),
+})
+
+export const settingsUpdateSchema = z.object({
+  commissionRatePercent: z.number().min(0).max(100).optional(),
+  currency: z.string().trim().min(1).optional(),
+  payoutHoldDays: z.number().int().min(0).optional(),
+  autoApproveEvents: z.boolean().optional(),
+  autoApprovePromotions: z.boolean().optional(),
+  maintenanceMode: z.boolean().optional(),
+})
+
+export const adminRoleUpdateSchema = z.object({
+  adminRole: z.enum(['owner', 'admin', 'support']),
+})

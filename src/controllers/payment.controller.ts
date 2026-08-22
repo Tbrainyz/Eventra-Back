@@ -1,7 +1,9 @@
 import crypto from 'crypto'
 import { Request, Response } from 'express'
 import { env } from '../config/keys.js'
+import { getPromotionPackage } from '../config/promotionPackages.js'
 import logger from '../config/logger.js'
+import { getPlatformSettings } from '../lib/platformSettings.js'
 import { sendTsRestError, sendTsRestSuccess } from '../lib/responseHandler.js'
 import tryCatchWrapper from '../lib/tryCatchWrapper.js'
 import Event from '../models/event.js'
@@ -102,8 +104,22 @@ export const handlePromotionPayment = async (reference: string): Promise<void> =
     return
   }
 
-  // Payment confirmed, but it still awaits admin approval before going live.
+  // Payment confirmed, but it still awaits admin approval before going live
+  // — unless the platform's auto-approve-promotions setting is on, in
+  // which case it's live immediately. Same duration math as
+  // approveEventPromotion in admin.controller.ts, kept in sync deliberately
+  // since this is the auto-approve path for the exact same transition.
   event.promotion.paidAt = new Date()
+  const settings = await getPlatformSettings()
+  if (settings.autoApprovePromotions) {
+    const pkg = getPromotionPackage(event.promotion.package)
+    const durationDays = pkg?.durationDays ?? 7
+    const startsAt = new Date()
+    event.promotion.status = 'approved'
+    event.promotion.startsAt = startsAt
+    event.promotion.endsAt = new Date(startsAt.getTime() + durationDays * 24 * 60 * 60 * 1000)
+    event.isPromoted = true
+  }
   await event.save()
 }
 

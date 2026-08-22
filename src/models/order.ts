@@ -52,7 +52,6 @@ const OrderItemSchema = new Schema<IOrderItem>(
   { _id: false }
 )
 
-const PLATFORM_COMMISSION_RATE = 0.05 // 5%, per the PRD
 
 const OrderSchema = new Schema<IOrder>(
   {
@@ -149,11 +148,15 @@ const OrderSchema = new Schema<IOrder>(
 
 /**
  * Compute subtotal/platformFee/organizerEarnings/total from order items.
- * Call before creating/saving an order so the money math lives in one place.
+ * `commissionRatePercent` comes from the specific event being purchased
+ * (Event.commissionRatePercent, snapshotted at event creation — see
+ * lib/platformSettings.ts) rather than a fixed constant, so a platform-wide
+ * rate change only ever applies to events created after that change.
+ * Defaults to 5 for orders on events created before this field existed.
  */
-export const calculateOrderTotals = (items: IOrderItem[]) => {
+export const calculateOrderTotals = (items: IOrderItem[], commissionRatePercent = 5) => {
   const subtotal = items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0)
-  const platformFee = Math.round(subtotal * PLATFORM_COMMISSION_RATE)
+  const platformFee = Math.round(subtotal * (commissionRatePercent / 100))
   const organizerEarnings = subtotal - platformFee
   return { subtotal, platformFee, organizerEarnings, total: subtotal }
 }

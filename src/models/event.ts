@@ -80,6 +80,11 @@ export interface IEvent extends Document {
   flagged: boolean
   flagReason?: string
   removedReason?: string
+  // Snapshotted from PlatformSettings at creation (see lib/platformSettings.ts)
+  // — never re-read live, so an admin changing the platform-wide rate later
+  // never retroactively changes what an already-published event charges.
+  // Falls back to 5 for any event created before this field existed.
+  commissionRatePercent?: number
   reservationsCount: number
   ticketsSoldCount: number
   revenueTotal: number
@@ -239,6 +244,11 @@ const EventSchema = new Schema<IEvent>(
     removedReason: {
       type: String,
       trim: true,
+    },
+    commissionRatePercent: {
+      type: Number,
+      min: 0,
+      max: 100,
     },
     promotion: {
       type: EventPromotionSchema,

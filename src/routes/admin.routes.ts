@@ -4,18 +4,25 @@ import {
   approveEventPromotion,
   approveOrganizer,
   approveRefundRequest,
+  dismissEventFlag,
+  dismissOrganizerFlag,
   flagEvent,
   getAdminOverview,
   getAdminPayoutsOverview,
   getAdminRevenue,
   getAttendeeDetailForAdmin,
   getEventDetailForAdmin,
+  getEventFlagDetail,
   getOrganizerDetailForAdmin,
+  getOrganizerFlagDetail,
   getPlatformStats,
   getRefundRequestDetail,
+  getSettings,
   listAttendeesForAdmin,
+  listAuditLog,
   listAwaitingPayouts,
   listEventsForAdmin,
+  listFlags,
   listOrganizersForAdmin,
   listPayoutHistory,
   listPendingEvents,
@@ -31,6 +38,8 @@ import {
   suspendUser,
   unflagEvent,
   unsuspendUser,
+  updateAdminRole,
+  updateSettings,
 } from '../controllers/admin.controller.js'
 import { createCategory, listAllCategories, updateCategory } from '../controllers/category.controller.js'
 import { requireAdmin, verifySession } from '../middlewares/auth.middleware.js'
@@ -92,9 +101,22 @@ router.get('/payouts/awaiting', listAwaitingPayouts)
 router.get('/payouts/history', listPayoutHistory)
 router.post('/payouts/:organizerId/:eventId/release', releaseEventPayout)
 
+// Reports (Needs action > Reports)
+router.get('/reports/flags', listFlags)
+router.get('/reports/flags/events/:id', getEventFlagDetail)
+router.get('/reports/flags/organizers/:id', getOrganizerFlagDetail)
+router.patch('/reports/flags/events/:id/dismiss', dismissEventFlag)
+router.patch('/reports/flags/organizers/:id/dismiss', dismissOrganizerFlag)
+router.get('/reports/audit-log', listAuditLog)
+
 // Categories
 router.get('/categories', listAllCategories)
 router.post('/categories', validateFormData(createCategorySchema), createCategory)
 router.patch('/categories/:id', validateFormData(updateCategorySchema), updateCategory)
+
+// Settings (Platform > Settings)
+router.get('/settings', getSettings)
+router.patch('/settings', updateSettings)
+router.patch('/settings/admins/:id/role', updateAdminRole)
 
 export default router

@@ -7,9 +7,13 @@ import tryCatchWrapper from '../lib/tryCatchWrapper.js'
 import { buildPaginationMeta, escapeRegExp, getPagination, sanitizeUser } from '../lib/utils.js'
 import { invalidateUserSessions } from '../lib/sessionStore.js'
 import { initiateOrderPayout } from '../jobs/payoutCron.js'
+import { logAdminAction } from '../lib/auditLog.js'
+import { getPlatformSettings, updatePlatformSettings } from '../lib/platformSettings.js'
+import AuditLog from '../models/auditLog.js'
 import Event from '../models/event.js'
 import Order from '../models/order.js'
 import RefundRequest from '../models/refundRequest.js'
+import Report from '../models/report.js'
 import Ticket from '../models/ticket.js'
 import TicketType from '../models/ticketType.js'
 import User from '../models/user.js'
@@ -55,6 +59,7 @@ export const suspendUser = tryCatchWrapper(async (req: Request, res: Response) =
 
   // Kick them out immediately rather than waiting for their session to expire naturally.
   await invalidateUserSessions(user._id.toString())
+  await logAdminAction(req, 'Suspended user', user.organizerProfile?.businessName || user.fullname)
 
   return sendTsRestSuccess(res, 200, {
     success: true,
@@ -72,6 +77,7 @@ export const unsuspendUser = tryCatchWrapper(async (req: Request, res: Response)
 
   user.isSuspended = false
   await user.save()
+  await logAdminAction(req, 'Reinstated user', user.organizerProfile?.businessName || user.fullname)
 
   return sendTsRestSuccess(res, 200, {
     success: true,
@@ -159,6 +165,7 @@ export const approveOrganizer = tryCatchWrapper(async (req: Request, res: Respon
   EmailService.sendOrganizerApprovedEmail(organizer).catch(error =>
     logger.error({ err: error }, `Organizer-approved email failed for ${organizer._id}`)
   )
+  await logAdminAction(req, 'Verified organizer', organizer.organizerProfile.businessName || organizer.fullname)
 
   return sendTsRestSuccess(res, 200, {
     success: true,
@@ -180,6 +187,7 @@ export const rejectOrganizer = tryCatchWrapper(async (req: Request, res: Respons
   EmailService.sendOrganizerRejectedEmail(organizer).catch(error =>
     logger.error({ err: error }, `Organizer-rejected email failed for ${organizer._id}`)
   )
+  await logAdminAction(req, 'Rejected organizer', organizer.organizerProfile.businessName || organizer.fullname)
 
   return sendTsRestSuccess(res, 200, {
     success: true,
@@ -232,6 +240,7 @@ export const approveEvent = tryCatchWrapper(async (req: Request, res: Response) 
       }
     })
     .catch(error => logger.error({ err: error }, `Could not load organizer for event ${event._id}`))
+  await logAdminAction(req, 'Approved event', event.title || 'Untitled event')
 
   return sendTsRestSuccess(res, 200, {
     success: true,
@@ -262,6 +271,7 @@ export const rejectEvent = tryCatchWrapper(async (req: Request, res: Response) =
       }
     })
     .catch(error => logger.error({ err: error }, `Could not load organizer for event ${event._id}`))
+  await logAdminAction(req, 'Rejected event', event.title || 'Untitled event')
 
   return sendTsRestSuccess(res, 200, {
     success: true,
@@ -290,6 +300,7 @@ export const approveEventPromotion = tryCatchWrapper(async (req: Request, res: R
   event.promotion.endsAt = endsAt
   event.isPromoted = true
   await event.save()
+  await logAdminAction(req, 'Approved promotion', event.title || 'Untitled event')
 
   return sendTsRestSuccess(res, 200, {
     success: true,
@@ -308,6 +319,7 @@ export const rejectEventPromotion = tryCatchWrapper(async (req: Request, res: Re
   event.promotion.status = 'rejected'
   event.isPromoted = false
   await event.save()
+  await logAdminAction(req, 'Rejected promotion', event.title || 'Untitled event')
 
   return sendTsRestSuccess(res, 200, {
     success: true,
@@ -391,6 +403,8 @@ export const approveRefundRequest = tryCatchWrapper(async (req: Request, res: Re
       })
       .catch(error => logger.error({ err: error }, `Could not load requester/event for refund ${refundRequest._id}`))
 
+    await logAdminAction(req, `Issued refund ₦${refundRequest.amount.toLocaleString('en-NG')}`, ticket.attendeeName)
+
     return sendTsRestSuccess(res, 200, {
       success: true,
       message: 'Refund processed',
@@ -413,6 +427,7 @@ export const rejectRefundRequest = tryCatchWrapper(async (req: Request, res: Res
   refundRequest.status = 'rejected'
   refundRequest.rejectionReason = reason
   await refundRequest.save()
+  await logAdminAction(req, 'Declined refund request', `₦${refundRequest.amount.toLocaleString('en-NG')}`)
 
   return sendTsRestSuccess(res, 200, {
     success: true,
@@ -546,6 +561,7 @@ export const flagEvent = tryCatchWrapper(async (req: Request, res: Response) => 
 
   const event = await Event.findByIdAndUpdate(id, { flagged: true, flagReason: reason }, { new: true })
   if (!event) return sendTsRestError(res, 404, 'Event not found')
+  await logAdminAction(req, 'Flagged event', event.title || 'Untitled event')
 
   return sendTsRestSuccess(res, 200, { success: true, message: 'Event flagged', body: event.toObject() })
 })
@@ -555,6 +571,7 @@ export const unflagEvent = tryCatchWrapper(async (req: Request, res: Response) =
 
   const event = await Event.findByIdAndUpdate(id, { flagged: false, $unset: { flagReason: 1 } }, { new: true })
   if (!event) return sendTsRestError(res, 404, 'Event not found')
+  await logAdminAction(req, 'Cleared flag', event.title || 'Untitled event')
 
   return sendTsRestSuccess(res, 200, { success: true, message: 'Flag dismissed', body: event.toObject() })
 })
@@ -570,6 +587,7 @@ export const removeEvent = tryCatchWrapper(async (req: Request, res: Response) =
 
   const event = await Event.findByIdAndUpdate(id, { status: 'removed', removedReason: reason, flagged: false }, { new: true })
   if (!event) return sendTsRestError(res, 404, 'Event not found')
+  await logAdminAction(req, 'Removed event', event.title || 'Untitled event')
 
   return sendTsRestSuccess(res, 200, { success: true, message: 'Event removed', body: event.toObject() })
 })
@@ -911,10 +929,18 @@ export const releaseEventPayout = tryCatchWrapper(async (req: Request, res: Resp
 
   let released = 0
   let failed = 0
+  let releasedAmount = 0
   for (const order of orders) {
     const result = await initiateOrderPayout(order)
-    if (result.ok) released++
-    else failed++
+    if (result.ok) {
+      released++
+      releasedAmount += order.organizerEarnings
+    } else {
+      failed++
+    }
+  }
+  if (released > 0) {
+    await logAdminAction(req, `Released payout ₦${releasedAmount.toLocaleString('en-NG')}`, orders[0].eventDoc?.title || 'event')
   }
 
   return sendTsRestSuccess(res, 200, {
@@ -1023,11 +1049,12 @@ const percentChange = (current: number, previous: number): number | null =>
  * revenue chart, and the Top Organizers ranking. All computed live from
  * Event/User/Order/RefundRequest — nothing here is cached or pre-aggregated.
  *
- * A few things the Figma shows have no backing data model yet (flagged
- * events, payment disputes, a distinct refund "investigate" queue, and any
- * kind of admin-action audit trail) — those come back as `null`/empty here
- * rather than a made-up number, and the client renders an honest
- * "not tracked yet" state for them instead of a fake stat.
+ * A couple of things the Figma shows still have no backing data model
+ * (payment disputes, and a distinct refund "investigate" queue split from
+ * the routine pending queue) — those come back as `null` here rather than
+ * a made-up number, and the client renders an honest "not tracked yet"
+ * state for them instead of a fake stat. Flagged events and recent
+ * activity are both real now — see the Report and AuditLog models.
  */
 export const getAdminOverview = tryCatchWrapper(async (req: Request, res: Response) => {
   const period: AdminRevenuePeriod = req.query.period === '7d' || req.query.period === '12m' ? req.query.period : '30d'
@@ -1043,6 +1070,7 @@ export const getAdminOverview = tryCatchWrapper(async (req: Request, res: Respon
     organizersToVerifyCount,
     promotionsPendingCount,
     pendingRefundsCount,
+    flaggedEventsCount,
     salesAgg,
     approvedPromotedEvents,
     activeEventsCount,
@@ -1054,11 +1082,13 @@ export const getAdminOverview = tryCatchWrapper(async (req: Request, res: Respon
     newOrganizersToday,
     topOrganizersAgg,
     revenueSeries,
+    recentActivity,
   ] = await Promise.all([
     Event.countDocuments({ status: 'pending_approval' }),
     User.countDocuments({ role: 'organizer', 'organizerProfile.approvalStatus': 'pending' }),
     Event.countDocuments({ 'promotion.status': 'pending', 'promotion.paidAt': { $exists: true } }),
     RefundRequest.countDocuments({ status: 'pending' }),
+    Event.countDocuments({ flagged: true }),
     Order.aggregate([
       { $match: { status: { $in: ['paid', 'partially_refunded'] } } },
       { $group: { _id: null, grossSales: { $sum: '$subtotal' }, commissionRevenue: { $sum: '$platformFee' } } },
@@ -1115,6 +1145,7 @@ export const getAdminOverview = tryCatchWrapper(async (req: Request, res: Respon
       },
     ]),
     buildPlatformRevenueSeries(period),
+    AuditLog.find().sort({ createdAt: -1 }).limit(5).lean(),
   ])
 
   const grossTicketSales = salesAgg[0]?.grossSales ?? 0
@@ -1160,16 +1191,203 @@ export const getAdminOverview = tryCatchWrapper(async (req: Request, res: Respon
       },
       revenueSeries,
       trustAndSafety: {
-        flaggedEventsCount: null,
+        flaggedEventsCount,
         openPaymentDisputesCount: null,
         refundRate30d,
         newOrganizersToday,
       },
       topOrganizers: topOrganizersAgg,
-      // No admin-action audit trail exists yet (approvals/rejections just
-      // mutate the document directly) — empty for now rather than invented
-      // entries. See getAdminOverview's doc comment.
-      recentActivity: [],
+      recentActivity: recentActivity.map(entry => ({
+        _id: entry._id,
+        message: `${entry.action} — ${entry.targetLabel}`,
+        actor: entry.adminName,
+        createdAt: entry.createdAt,
+      })),
     },
   })
+})
+
+// ---------------------------------------------------------------------------
+// Reports (Flags + Audit log)
+// ---------------------------------------------------------------------------
+
+export const listFlags = tryCatchWrapper(async (req: Request, res: Response) => {
+  const [eventGroups, organizerGroups] = await Promise.all([
+    Report.aggregate([
+      { $match: { targetType: 'event', status: 'open' } },
+      { $group: { _id: '$event', reportCount: { $sum: 1 }, latestReason: { $last: '$reason' } } },
+      { $lookup: { from: 'events', localField: '_id', foreignField: '_id', as: 'eventDoc' } },
+      { $unwind: '$eventDoc' },
+      { $sort: { reportCount: -1 } },
+    ]),
+    Report.aggregate([
+      { $match: { targetType: 'organizer', status: 'open' } },
+      { $group: { _id: '$organizer', reportCount: { $sum: 1 }, latestReason: { $last: '$reason' } } },
+      { $lookup: { from: 'users', localField: '_id', foreignField: '_id', as: 'organizerDoc' } },
+      { $unwind: '$organizerDoc' },
+      { $sort: { reportCount: -1 } },
+    ]),
+  ])
+
+  const flags = [
+    ...eventGroups.map(g => ({
+      targetType: 'event' as const,
+      targetId: g._id,
+      subject: g.eventDoc.title || 'Untitled event',
+      reason: g.latestReason,
+      reportCount: g.reportCount,
+    })),
+    ...organizerGroups.map(g => ({
+      targetType: 'organizer' as const,
+      targetId: g._id,
+      subject: `@${(g.organizerDoc.organizerProfile?.businessName || g.organizerDoc.fullname).toLowerCase().replace(/\s+/g, '_')}`,
+      reason: g.latestReason,
+      reportCount: g.reportCount,
+    })),
+  ]
+
+  return sendTsRestSuccess(res, 200, { success: true, message: 'Flags fetched', body: flags })
+})
+
+export const getEventFlagDetail = tryCatchWrapper(async (req: Request, res: Response) => {
+  const { id } = req.params
+
+  const [event, reports] = await Promise.all([
+    Event.findById(id).populate('organizer', 'fullname organizerProfile.businessName').populate('category', 'name').lean(),
+    Report.find({ targetType: 'event', event: id, status: 'open' }).sort({ createdAt: -1 }).lean(),
+  ])
+  if (!event) return sendTsRestError(res, 404, 'Event not found')
+
+  return sendTsRestSuccess(res, 200, {
+    success: true,
+    message: 'Flag detail fetched',
+    body: {
+      event: {
+        _id: event._id,
+        title: event.title,
+        organizerName: (event.organizer as any)?.organizerProfile?.businessName || (event.organizer as any)?.fullname,
+        categoryName: (event.category as any)?.name,
+        startDate: event.startDate,
+        venue: event.venue,
+        isOnline: event.isOnline,
+      },
+      reports: reports.map(r => ({ _id: r._id, reason: r.reason, reporterName: r.reporterName, createdAt: r.createdAt })),
+    },
+  })
+})
+
+export const getOrganizerFlagDetail = tryCatchWrapper(async (req: Request, res: Response) => {
+  const { id } = req.params
+
+  const [organizer, reports, ordersCount] = await Promise.all([
+    User.findOne({ _id: id, role: 'organizer' }).select('-password').lean(),
+    Report.find({ targetType: 'organizer', organizer: id, status: 'open' }).sort({ createdAt: -1 }).lean(),
+    Order.countDocuments({ buyer: id }),
+  ])
+  if (!organizer) return sendTsRestError(res, 404, 'Organizer not found')
+
+  return sendTsRestSuccess(res, 200, {
+    success: true,
+    message: 'Flag detail fetched',
+    body: {
+      organizer: { ...sanitizeUser(organizer), ordersCount },
+      reports: reports.map(r => ({ _id: r._id, reason: r.reason, reporterName: r.reporterName, createdAt: r.createdAt })),
+    },
+  })
+})
+
+export const dismissEventFlag = tryCatchWrapper(async (req: Request, res: Response) => {
+  const { id } = req.params
+
+  const event = await Event.findByIdAndUpdate(id, { flagged: false, $unset: { flagReason: 1 } }, { new: true })
+  if (!event) return sendTsRestError(res, 404, 'Event not found')
+  await Report.updateMany({ targetType: 'event', event: id, status: 'open' }, { status: 'dismissed' })
+  await logAdminAction(req, 'Dismissed flag', event.title || 'Untitled event')
+
+  return sendTsRestSuccess(res, 200, { success: true, message: 'Flag dismissed', body: event.toObject() })
+})
+
+export const dismissOrganizerFlag = tryCatchWrapper(async (req: Request, res: Response) => {
+  const { id } = req.params
+
+  const organizer = await User.findOne({ _id: id, role: 'organizer' })
+  if (!organizer) return sendTsRestError(res, 404, 'Organizer not found')
+  await Report.updateMany({ targetType: 'organizer', organizer: id, status: 'open' }, { status: 'dismissed' })
+  await logAdminAction(req, 'Dismissed flag', organizer.organizerProfile?.businessName || organizer.fullname)
+
+  return sendTsRestSuccess(res, 200, { success: true, message: 'Flag dismissed', body: sanitizeUser(organizer.toObject()) })
+})
+
+export const listAuditLog = tryCatchWrapper(async (req: Request, res: Response) => {
+  const { page, limit, skip } = getPagination(req.query)
+
+  const [entries, total] = await Promise.all([
+    AuditLog.find().sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+    AuditLog.countDocuments(),
+  ])
+
+  return sendTsRestSuccess(res, 200, {
+    success: true,
+    message: 'Audit log fetched',
+    body: { entries, meta: buildPaginationMeta(page, limit, total) },
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Settings
+// ---------------------------------------------------------------------------
+
+export const getSettings = tryCatchWrapper(async (req: Request, res: Response) => {
+  const settings = await getPlatformSettings()
+
+  const admins = await User.find({ role: 'admin' }).select('fullname email adminRole').sort({ createdAt: 1 }).lean()
+
+  return sendTsRestSuccess(res, 200, {
+    success: true,
+    message: 'Settings fetched',
+    body: {
+      commissionRatePercent: settings.commissionRatePercent,
+      currency: settings.currency,
+      payoutHoldDays: settings.payoutHoldDays,
+      autoApproveEvents: settings.autoApproveEvents,
+      autoApprovePromotions: settings.autoApprovePromotions,
+      maintenanceMode: settings.maintenanceMode,
+      admins: admins.map(a => ({ _id: a._id, fullname: a.fullname, email: a.email, adminRole: a.adminRole ?? 'admin' })),
+    },
+  })
+})
+
+export const updateSettings = tryCatchWrapper(async (req: Request, res: Response) => {
+  const patch = req.body as Partial<{
+    commissionRatePercent: number
+    currency: string
+    payoutHoldDays: number
+    autoApproveEvents: boolean
+    autoApprovePromotions: boolean
+    maintenanceMode: boolean
+  }>
+
+  const settings = await updatePlatformSettings(patch)
+  await logAdminAction(req, 'Updated platform settings', Object.keys(patch).join(', ') || 'settings')
+
+  return sendTsRestSuccess(res, 200, {
+    success: true,
+    message: 'Settings updated',
+    body: settings.toObject(),
+  })
+})
+
+// Purely a display label — see the adminRole doc comment on the User
+// model. Doesn't grant or revoke access to anything; every admin route
+// still just checks requireAdmin (role === 'admin') the same as before.
+export const updateAdminRole = tryCatchWrapper(async (req: Request, res: Response) => {
+  const { id } = req.params
+  const { adminRole } = req.body as { adminRole: 'owner' | 'admin' | 'support' }
+
+  const admin = await User.findOneAndUpdate({ _id: id, role: 'admin' }, { adminRole }, { new: true }).select('fullname email adminRole')
+  if (!admin) return sendTsRestError(res, 404, 'Admin not found')
+
+  await logAdminAction(req, `Changed admin role to ${adminRole}`, admin.fullname)
+
+  return sendTsRestSuccess(res, 200, { success: true, message: 'Admin role updated', body: { _id: admin._id, fullname: admin.fullname, email: admin.email, adminRole: admin.adminRole } })
 })

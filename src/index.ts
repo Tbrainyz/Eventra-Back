@@ -19,6 +19,7 @@ import userRoutes from './routes/user.routes.js'
 import promotionRoutes from './routes/promotion.routes.js'
 import cronRoutes from './routes/cron.routes.js'
 import uploadRoutes from './routes/upload.routes.js'
+import { maintenanceGate } from './middlewares/maintenance.middleware.js'
 
 import {
   appErrorHandler,
@@ -143,6 +144,7 @@ app.use('/health', async (req: Request, res: Response, next: NextFunction) => {
 })
 
 app.use('/api/v1/auth', authRoutes)
+app.use(maintenanceGate)
 app.use('/api/v1/tickets', ticketRoutes)
 app.use('/api/v1/payments', paymentRoutes)
 app.use('/api/v1/events', eventRoutes)
