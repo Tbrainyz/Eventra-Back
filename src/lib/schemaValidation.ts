@@ -235,6 +235,20 @@ export const reportEventSchema = z.object({
   reason: z.string().trim().min(10, 'Give a bit more detail (at least 10 characters)').max(500),
 })
 
+// 'owner' is deliberately excluded — an owner invites peers into the two
+// lower tiers only, never hands out ownership through the invite flow.
+// Promoting someone to owner (if that's ever needed) is a separate,
+// harder-to-misuse action, not this form.
+export const inviteAdminSchema = z.object({
+  fullname: z.string().trim().min(2, 'Fullname must be at least 2 characters'),
+  email: z.string().trim().toLowerCase().email('Invalid email address'),
+  adminRole: z.enum(['admin', 'support']),
+})
+
+export const challengeDisputeSchema = z.object({
+  serviceDetails: z.string().trim().min(10, 'Give a bit more detail (at least 10 characters)').max(1000),
+})
+
 export const settingsUpdateSchema = z.object({
   commissionRatePercent: z.number().min(0).max(100).optional(),
   currency: z.string().trim().min(1).optional(),

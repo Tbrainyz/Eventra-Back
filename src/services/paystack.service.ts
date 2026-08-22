@@ -214,6 +214,64 @@ export class PaystackService {
       throw new Error(message)
     }
   }
+  /**
+   * "Challenge" a dispute — submit evidence that the customer got what
+   * they paid for, then mark the dispute declined so it goes to Paystack's
+   * review process instead of an automatic refund. Two Paystack calls
+   * under the hood (Add Evidence, then Resolve with resolution:
+   * 'declined') since Paystack requires evidence to exist before you can
+   * decline. No receipt upload here — `serviceDetails` is a text
+   * description of what was delivered (the event took place, ticket was
+   * issued, etc.), which is enough for Paystack's Add Evidence endpoint;
+   * a receipt/attachment upload is a separate, optional step Paystack's
+   * flow supports but doesn't require.
+   */
+  static async challengeDispute(
+    disputeId: string,
+    evidence: { customerEmail: string; customerName: string; serviceDetails: string }
+  ): Promise<{ status: string }> {
+    try {
+      await this.getClient().post(`/dispute/${disputeId}/evidence`, {
+        customer_email: evidence.customerEmail,
+        customer_name: evidence.customerName,
+        customer_phone: '',
+        service_details: evidence.serviceDetails,
+      })
+
+      const { data } = await this.getClient().put(`/dispute/${disputeId}/resolve`, {
+        resolution: 'declined',
+        message: evidence.serviceDetails,
+        uploaded_filename: '',
+      })
+
+      return { status: data.data.status }
+    } catch (error: any) {
+      const message = error.response?.data?.message || error.message || 'Failed to challenge dispute'
+      logger.error({ err: error.response?.data }, `Paystack dispute challenge failed: ${message}`)
+      throw new Error(message)
+    }
+  }
+
+  /**
+   * "Accept loss" — concede the dispute. Paystack refunds the customer
+   * from the merchant balance once this resolves; `refund_amount` omitted
+   * means a full refund of the disputed amount.
+   */
+  static async acceptDisputeLoss(disputeId: string): Promise<{ status: string }> {
+    try {
+      const { data } = await this.getClient().put(`/dispute/${disputeId}/resolve`, {
+        resolution: 'merchant-accepted',
+        message: 'Accepted by Eventra admin',
+        uploaded_filename: '',
+      })
+
+      return { status: data.data.status }
+    } catch (error: any) {
+      const message = error.response?.data?.message || error.message || 'Failed to resolve dispute'
+      logger.error({ err: error.response?.data }, `Paystack dispute accept-loss failed: ${message}`)
+      throw new Error(message)
+    }
+  }
 }
 
 export const paystackService = new PaystackService()

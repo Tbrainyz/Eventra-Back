@@ -1,15 +1,17 @@
 import { Request, Response } from 'express'
+import crypto from 'node:crypto'
 import mongoose from 'mongoose'
 import { getPromotionPackage } from '../config/promotionPackages.js'
 import logger from '../config/logger.js'
 import { sendTsRestError, sendTsRestSuccess } from '../lib/responseHandler.js'
 import tryCatchWrapper from '../lib/tryCatchWrapper.js'
-import { buildPaginationMeta, escapeRegExp, getPagination, sanitizeUser } from '../lib/utils.js'
+import { buildPaginationMeta, escapeRegExp, generateOTP, getPagination, sanitizeUser } from '../lib/utils.js'
 import { invalidateUserSessions } from '../lib/sessionStore.js'
 import { initiateOrderPayout } from '../jobs/payoutCron.js'
 import { logAdminAction } from '../lib/auditLog.js'
 import { getPlatformSettings, updatePlatformSettings } from '../lib/platformSettings.js'
 import AuditLog from '../models/auditLog.js'
+import Dispute from '../models/dispute.js'
 import Event from '../models/event.js'
 import Order from '../models/order.js'
 import RefundRequest from '../models/refundRequest.js'
@@ -1050,11 +1052,10 @@ const percentChange = (current: number, previous: number): number | null =>
  * Event/User/Order/RefundRequest — nothing here is cached or pre-aggregated.
  *
  * A couple of things the Figma shows still have no backing data model
- * (payment disputes, and a distinct refund "investigate" queue split from
- * the routine pending queue) — those come back as `null` here rather than
- * a made-up number, and the client renders an honest "not tracked yet"
- * state for them instead of a fake stat. Flagged events and recent
- * activity are both real now — see the Report and AuditLog models.
+ * (a distinct refund "investigate" queue split from the routine pending
+ * queue) — that comes back as `null` here rather than a made-up number.
+ * Flagged events, payment disputes, and recent activity are all real now
+ * — see the Report, Dispute, and AuditLog models.
  */
 export const getAdminOverview = tryCatchWrapper(async (req: Request, res: Response) => {
   const period: AdminRevenuePeriod = req.query.period === '7d' || req.query.period === '12m' ? req.query.period : '30d'
@@ -1083,6 +1084,7 @@ export const getAdminOverview = tryCatchWrapper(async (req: Request, res: Respon
     topOrganizersAgg,
     revenueSeries,
     recentActivity,
+    openDisputesCount,
   ] = await Promise.all([
     Event.countDocuments({ status: 'pending_approval' }),
     User.countDocuments({ role: 'organizer', 'organizerProfile.approvalStatus': 'pending' }),
@@ -1146,6 +1148,7 @@ export const getAdminOverview = tryCatchWrapper(async (req: Request, res: Respon
     ]),
     buildPlatformRevenueSeries(period),
     AuditLog.find().sort({ createdAt: -1 }).limit(5).lean(),
+    Dispute.countDocuments({ status: { $nin: ['resolved', 'accepted-loss'] } }),
   ])
 
   const grossTicketSales = salesAgg[0]?.grossSales ?? 0
@@ -1192,7 +1195,7 @@ export const getAdminOverview = tryCatchWrapper(async (req: Request, res: Respon
       revenueSeries,
       trustAndSafety: {
         flaggedEventsCount,
-        openPaymentDisputesCount: null,
+        openPaymentDisputesCount: openDisputesCount,
         refundRate30d,
         newOrganizersToday,
       },
@@ -1387,7 +1390,154 @@ export const updateAdminRole = tryCatchWrapper(async (req: Request, res: Respons
   const admin = await User.findOneAndUpdate({ _id: id, role: 'admin' }, { adminRole }, { new: true }).select('fullname email adminRole')
   if (!admin) return sendTsRestError(res, 404, 'Admin not found')
 
+  // req.session.adminRole is only set at login — force this admin to log
+  // back in so a demotion (or promotion) actually takes effect immediately
+  // rather than whenever their existing session happens to expire. Same
+  // reasoning as suspendUser already forcing a logout.
+  await invalidateUserSessions(admin._id.toString())
   await logAdminAction(req, `Changed admin role to ${adminRole}`, admin.fullname)
 
   return sendTsRestSuccess(res, 200, { success: true, message: 'Admin role updated', body: { _id: admin._id, fullname: admin.fullname, email: admin.email, adminRole: admin.adminRole } })
+})
+
+const OTP_TTL_MS = 15 * 60 * 1000 // 15 minutes — matches auth.controller.ts's own OTP-flow copy
+
+/**
+ * Creates the invited admin's account outright (owner-only, see
+ * requireAdminTier('owner') on the route) with a random, never-revealed
+ * password, then routes them through the exact same "reset your password"
+ * OTP email + /auth/reset-password page every attendee/organizer already
+ * uses — rather than building a separate accept-invite token system.
+ * They land on the same reset-password form, set a real password, and log
+ * in normally from there.
+ */
+export const inviteAdmin = tryCatchWrapper(async (req: Request, res: Response) => {
+  const { fullname, email, adminRole } = req.body as { fullname: string; email: string; adminRole: 'admin' | 'support' }
+
+  const existing = await User.findOne({ email }).lean()
+  if (existing) {
+    return sendTsRestError(res, 409, 'An account with this email already exists')
+  }
+
+  const otp = generateOTP()
+  const temporaryPassword = crypto.randomBytes(24).toString('hex') // never sent anywhere — they set their own via the reset flow below
+
+  const admin = await User.create({
+    fullname,
+    email,
+    password: temporaryPassword,
+    role: 'admin',
+    adminRole,
+    isVerified: true, // owner-initiated, not self-registered — no need to re-verify the email address itself
+    passwordResetOTP: otp,
+    passwordResetOTPExpiry: new Date(Date.now() + OTP_TTL_MS),
+  })
+
+  await EmailService.sendPasswordResetEmail({ user: admin, otp })
+    .then(() => {})
+    .catch(error => logger.error({ err: error }, `Admin invite email failed for ${admin._id}`))
+
+  await logAdminAction(req, `Invited ${adminRole}`, fullname)
+
+  return sendTsRestSuccess(res, 201, {
+    success: true,
+    message: `Invited ${fullname} — they'll get an email to set their password`,
+    body: { _id: admin._id, fullname: admin.fullname, email: admin.email, adminRole: admin.adminRole },
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Disputes (Refunds & dispute > Disputes)
+// ---------------------------------------------------------------------------
+
+export const listDisputes = tryCatchWrapper(async (req: Request, res: Response) => {
+  const disputes = await Dispute.find({ status: { $nin: ['resolved', 'accepted-loss'] } })
+    .populate('event', 'title slug')
+    .populate({ path: 'order', select: 'buyer guestName items', populate: { path: 'buyer', select: 'fullname email' } })
+    .sort({ createdAt: -1 })
+    .lean()
+
+  const body = disputes.map(d => {
+    const order = d.order as any
+    const attendeeName = order?.buyer?.fullname || order?.guestName || 'Guest'
+    return {
+      _id: d._id,
+      event: d.event,
+      amount: d.amount,
+      status: d.status,
+      attendeeName,
+      raisedAt: d.raisedAt,
+    }
+  })
+
+  return sendTsRestSuccess(res, 200, { success: true, message: 'Disputes fetched', body })
+})
+
+export const getDisputeDetail = tryCatchWrapper(async (req: Request, res: Response) => {
+  const { id } = req.params
+
+  const dispute = await Dispute.findById(id)
+    .populate('event', 'title slug')
+    .populate({ path: 'order', select: 'buyer guestName guestEmail paystackReference', populate: { path: 'buyer', select: 'fullname email' } })
+    .lean()
+  if (!dispute) return sendTsRestError(res, 404, 'Dispute not found')
+
+  const order = dispute.order as any
+
+  return sendTsRestSuccess(res, 200, {
+    success: true,
+    message: 'Dispute fetched',
+    body: {
+      _id: dispute._id,
+      event: dispute.event,
+      amount: dispute.amount,
+      status: dispute.status,
+      raisedAt: dispute.raisedAt,
+      resolvedAt: dispute.resolvedAt,
+      attendeeName: order?.buyer?.fullname || order?.guestName || 'Guest',
+      attendeeEmail: order?.buyer?.email || order?.guestEmail,
+      paystackReference: order?.paystackReference,
+    },
+  })
+})
+
+export const challengeDispute = tryCatchWrapper(async (req: Request, res: Response) => {
+  const { id } = req.params
+  const { serviceDetails } = req.body as { serviceDetails: string }
+
+  const dispute = await Dispute.findById(id).populate({
+    path: 'order',
+    select: 'buyer guestName guestEmail',
+    populate: { path: 'buyer', select: 'fullname email' },
+  })
+  if (!dispute) return sendTsRestError(res, 404, 'Dispute not found')
+
+  const order = dispute.order as any
+  await PaystackService.challengeDispute(dispute.paystackDisputeId, {
+    customerEmail: order?.buyer?.email || order?.guestEmail || '',
+    customerName: order?.buyer?.fullname || order?.guestName || 'Attendee',
+    serviceDetails,
+  })
+
+  dispute.status = 'challenged'
+  await dispute.save()
+  await logAdminAction(req, 'Challenged dispute', `₦${dispute.amount.toLocaleString('en-NG')}`)
+
+  return sendTsRestSuccess(res, 200, { success: true, message: 'Dispute challenged', body: dispute.toObject() })
+})
+
+export const acceptDisputeLoss = tryCatchWrapper(async (req: Request, res: Response) => {
+  const { id } = req.params
+
+  const dispute = await Dispute.findById(id)
+  if (!dispute) return sendTsRestError(res, 404, 'Dispute not found')
+
+  await PaystackService.acceptDisputeLoss(dispute.paystackDisputeId)
+
+  dispute.status = 'accepted-loss'
+  dispute.resolvedAt = new Date()
+  await dispute.save()
+  await logAdminAction(req, 'Accepted dispute loss', `₦${dispute.amount.toLocaleString('en-NG')}`)
+
+  return sendTsRestSuccess(res, 200, { success: true, message: 'Dispute conceded — Paystack will refund the customer', body: dispute.toObject() })
 })

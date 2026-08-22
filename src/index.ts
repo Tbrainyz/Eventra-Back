@@ -42,6 +42,11 @@ declare module 'express-session' {
   interface SessionData {
     userId?: string
     role?: 'attendee' | 'organizer' | 'admin'
+    // Only set when role === 'admin' — see middlewares/adminPermission.middleware.ts.
+    // A role change (updateAdminRole in admin.controller.ts) invalidates
+    // this admin's sessions the same way suspendUser already does, so a
+    // stale tier here is never trusted past that admin's next login.
+    adminRole?: 'owner' | 'admin' | 'support'
     // Set once a guest proves ownership of an email via the OTP flow (see
     // verifyGuestTicketAccess in ticket.controller.ts) — trusted the same
     // way userId is, but only for actions scoped to tickets/orders with a

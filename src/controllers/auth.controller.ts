@@ -83,6 +83,7 @@ export const verifyEmail = tryCatchWrapper(async (req: Request, res: Response) =
 
   req.session.userId = user._id.toString()
   req.session.role = user.role
+  req.session.adminRole = user.role === 'admin' ? (user.adminRole ?? 'admin') : undefined
 
   return sendTsRestSuccess(res, 200, {
     success: true,
@@ -172,6 +173,7 @@ export const googleAuth = tryCatchWrapper(async (req: Request, res: Response) =>
 
   req.session.userId = user._id.toString()
   req.session.role = user.role
+  req.session.adminRole = user.role === 'admin' ? (user.adminRole ?? 'admin') : undefined
 
   return sendTsRestSuccess(res, 200, {
     success: true,
@@ -207,6 +209,7 @@ export const login = tryCatchWrapper(async (req: Request, res: Response) => {
 
   req.session.userId = user._id.toString()
   req.session.role = user.role
+  req.session.adminRole = user.role === 'admin' ? (user.adminRole ?? 'admin') : undefined
 
   return sendTsRestSuccess(res, 200, {
     success: true,

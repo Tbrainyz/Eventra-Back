@@ -8,6 +8,7 @@ import { sendTsRestError, sendTsRestSuccess } from '../lib/responseHandler.js'
 import tryCatchWrapper from '../lib/tryCatchWrapper.js'
 import Event from '../models/event.js'
 import Order from '../models/order.js'
+import Dispute from '../models/dispute.js'
 import User from '../models/user.js'
 import { PaystackService } from '../services/paystack.service.js'
 import { TicketService } from '../services/ticket.service.js'
@@ -123,6 +124,41 @@ export const handlePromotionPayment = async (reference: string): Promise<void> =
   await event.save()
 }
 
+/**
+ * Ingests both dispute lifecycle events Paystack sends. `charge.dispute.create`
+ * is the one that matters for creating our row; `charge.dispute.resolve`
+ * just syncs the final outcome (whether resolved by us via
+ * challengeDispute/acceptDisputeLoss, by Paystack's 16-hour auto-accept, or
+ * by Paystack's own investigation) — same idempotent upsert either way,
+ * keyed on Paystack's own dispute id so a re-delivered webhook never
+ * creates a duplicate row.
+ */
+const handleDisputeEvent = async (data: any): Promise<void> => {
+  const paystackDisputeId = String(data.id)
+  const transactionReference: string | undefined = data.transaction?.reference
+
+  const order = transactionReference ? await Order.findOne({ paystackReference: transactionReference }) : null
+  if (!order) {
+    logger.error(`Paystack webhook: dispute ${paystackDisputeId} has no matching order for reference ${transactionReference}`)
+    return
+  }
+
+  await Dispute.findOneAndUpdate(
+    { paystackDisputeId },
+    {
+      paystackDisputeId,
+      order: order._id,
+      event: order.event,
+      amount: order.subtotal,
+      status: data.status,
+      resolution: data.resolution ?? undefined,
+      raisedAt: data.createdAt ?? new Date(),
+      resolvedAt: data.status === 'resolved' ? new Date() : undefined,
+    },
+    { upsert: true, new: true }
+  )
+}
+
 const handleTransferOutcome = async (event: string, reference: string): Promise<void> => {
   // Our payout references are formatted PAYOUT-<orderId>
   const orderId = reference.replace(/^PAYOUT-/, '')
@@ -171,6 +207,8 @@ export const paystackWebhook = tryCatchWrapper(async (req: Request, res: Respons
     await handleTicketOrderPayment(reference)
   } else if ((event === 'transfer.success' || event === 'transfer.failed' || event === 'transfer.reversed') && reference) {
     await handleTransferOutcome(event, reference)
+  } else if (event === 'charge.dispute.create' || event === 'charge.dispute.resolve') {
+    await handleDisputeEvent(data)
   }
   // Anything else is acknowledged and ignored, so Paystack doesn't retry forever.
 
