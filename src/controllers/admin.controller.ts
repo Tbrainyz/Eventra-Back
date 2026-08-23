@@ -9,6 +9,7 @@ import { buildPaginationMeta, escapeRegExp, generateOTP, getPagination, sanitize
 import { invalidateUserSessions } from '../lib/sessionStore.js'
 import { initiateOrderPayout } from '../jobs/payoutCron.js'
 import { logAdminAction } from '../lib/auditLog.js'
+import { notifyUser } from '../lib/notify.js'
 import { getPlatformSettings, updatePlatformSettings } from '../lib/platformSettings.js'
 import AuditLog from '../models/auditLog.js'
 import Dispute from '../models/dispute.js'
@@ -168,6 +169,12 @@ export const approveOrganizer = tryCatchWrapper(async (req: Request, res: Respon
     logger.error({ err: error }, `Organizer-approved email failed for ${organizer._id}`)
   )
   await logAdminAction(req, 'Verified organizer', organizer.organizerProfile.businessName || organizer.fullname)
+  await notifyUser(organizer._id, {
+    type: 'organizer_approved',
+    title: "You're verified!",
+    message: 'Your organizer account has been approved. You can now publish paid events.',
+    link: '/organizer/settings',
+  })
 
   return sendTsRestSuccess(res, 200, {
     success: true,
@@ -190,6 +197,12 @@ export const rejectOrganizer = tryCatchWrapper(async (req: Request, res: Respons
     logger.error({ err: error }, `Organizer-rejected email failed for ${organizer._id}`)
   )
   await logAdminAction(req, 'Rejected organizer', organizer.organizerProfile.businessName || organizer.fullname)
+  await notifyUser(organizer._id, {
+    type: 'organizer_rejected',
+    title: 'Organizer verification rejected',
+    message: 'Your organizer verification was rejected. Check your email for details and resubmit when ready.',
+    link: '/organizer/settings',
+  })
 
   return sendTsRestSuccess(res, 200, {
     success: true,
@@ -243,6 +256,12 @@ export const approveEvent = tryCatchWrapper(async (req: Request, res: Response) 
     })
     .catch(error => logger.error({ err: error }, `Could not load organizer for event ${event._id}`))
   await logAdminAction(req, 'Approved event', event.title || 'Untitled event')
+  await notifyUser(event.organizer, {
+    type: 'event_approved',
+    title: 'Event approved',
+    message: `"${event.title || 'Your event'}" is now live.`,
+    link: `/organizer/events/${event._id}`,
+  })
 
   return sendTsRestSuccess(res, 200, {
     success: true,
@@ -274,6 +293,12 @@ export const rejectEvent = tryCatchWrapper(async (req: Request, res: Response) =
     })
     .catch(error => logger.error({ err: error }, `Could not load organizer for event ${event._id}`))
   await logAdminAction(req, 'Rejected event', event.title || 'Untitled event')
+  await notifyUser(event.organizer, {
+    type: 'event_rejected',
+    title: 'Event rejected',
+    message: `"${event.title || 'Your event'}" was rejected. ${event.rejectionReason ?? ''}`.trim(),
+    link: `/organizer/events/${event._id}`,
+  })
 
   return sendTsRestSuccess(res, 200, {
     success: true,
@@ -303,6 +328,12 @@ export const approveEventPromotion = tryCatchWrapper(async (req: Request, res: R
   event.isPromoted = true
   await event.save()
   await logAdminAction(req, 'Approved promotion', event.title || 'Untitled event')
+  await notifyUser(event.organizer, {
+    type: 'promotion_approved',
+    title: 'Promotion approved',
+    message: `Your promotion for "${event.title || 'your event'}" is now live.`,
+    link: `/organizer/events/${event._id}`,
+  })
 
   return sendTsRestSuccess(res, 200, {
     success: true,
@@ -322,6 +353,12 @@ export const rejectEventPromotion = tryCatchWrapper(async (req: Request, res: Re
   event.isPromoted = false
   await event.save()
   await logAdminAction(req, 'Rejected promotion', event.title || 'Untitled event')
+  await notifyUser(event.organizer, {
+    type: 'promotion_rejected',
+    title: 'Promotion rejected',
+    message: `Your promotion request for "${event.title || 'your event'}" was rejected.`,
+    link: `/organizer/events/${event._id}`,
+  })
 
   return sendTsRestSuccess(res, 200, {
     success: true,
@@ -406,6 +443,14 @@ export const approveRefundRequest = tryCatchWrapper(async (req: Request, res: Re
       .catch(error => logger.error({ err: error }, `Could not load requester/event for refund ${refundRequest._id}`))
 
     await logAdminAction(req, `Issued refund ₦${refundRequest.amount.toLocaleString('en-NG')}`, ticket.attendeeName)
+    if (refundRequest.requestedBy) {
+      await notifyUser(refundRequest.requestedBy, {
+        type: 'refund_approved',
+        title: 'Refund processed',
+        message: `Your refund of ₦${refundRequest.amount.toLocaleString('en-NG')} has been processed.`,
+        link: '/tickets',
+      })
+    }
 
     return sendTsRestSuccess(res, 200, {
       success: true,
@@ -430,6 +475,14 @@ export const rejectRefundRequest = tryCatchWrapper(async (req: Request, res: Res
   refundRequest.rejectionReason = reason
   await refundRequest.save()
   await logAdminAction(req, 'Declined refund request', `₦${refundRequest.amount.toLocaleString('en-NG')}`)
+  if (refundRequest.requestedBy) {
+    await notifyUser(refundRequest.requestedBy, {
+      type: 'refund_rejected',
+      title: 'Refund request declined',
+      message: `Your refund request for ₦${refundRequest.amount.toLocaleString('en-NG')} was declined.${reason ? ` ${reason}` : ''}`,
+      link: '/tickets',
+    })
+  }
 
   return sendTsRestSuccess(res, 200, {
     success: true,
@@ -590,6 +643,12 @@ export const removeEvent = tryCatchWrapper(async (req: Request, res: Response) =
   const event = await Event.findByIdAndUpdate(id, { status: 'removed', removedReason: reason, flagged: false }, { new: true })
   if (!event) return sendTsRestError(res, 404, 'Event not found')
   await logAdminAction(req, 'Removed event', event.title || 'Untitled event')
+  await notifyUser(event.organizer, {
+    type: 'event_removed',
+    title: 'Event removed',
+    message: `"${event.title || 'Your event'}" was removed by an admin. ${reason ?? ''}`.trim(),
+    link: `/organizer/events/${event._id}`,
+  })
 
   return sendTsRestSuccess(res, 200, { success: true, message: 'Event removed', body: event.toObject() })
 })
@@ -943,6 +1002,12 @@ export const releaseEventPayout = tryCatchWrapper(async (req: Request, res: Resp
   }
   if (released > 0) {
     await logAdminAction(req, `Released payout ₦${releasedAmount.toLocaleString('en-NG')}`, orders[0].eventDoc?.title || 'event')
+    await notifyUser(organizerId, {
+      type: 'payout_released',
+      title: 'Payout released',
+      message: `₦${releasedAmount.toLocaleString('en-NG')} has been sent to your bank account for "${orders[0].eventDoc?.title || 'your event'}".`,
+      link: '/organizer/payouts',
+    })
   }
 
   return sendTsRestSuccess(res, 200, {

@@ -11,6 +11,7 @@ import Ticket from '../models/ticket.js'
 import TicketType from '../models/ticketType.js'
 import User from '../models/user.js'
 import { getPlatformSettings } from '../lib/platformSettings.js'
+import { notifyAdmins } from '../lib/notify.js'
 import { PaystackService } from '../services/paystack.service.js'
 import { EmailService } from '../services/email.service.js'
 import logger from '../config/logger.js'
@@ -183,6 +184,12 @@ export const submitEventForApproval = tryCatchWrapper(async (req: Request, res: 
     event.status = 'pending_approval'
     event.rejectionReason = undefined
     await event.save()
+    await notifyAdmins({
+      type: 'event_submitted',
+      title: 'New event awaiting review',
+      message: `"${event.title || 'Untitled event'}" by ${organizer.fullname} needs approval.`,
+      link: `/admin/approvals/events/${event._id}`,
+    })
 
     return sendTsRestSuccess(res, 200, {
       success: true,
@@ -731,6 +738,14 @@ export const reportEvent = tryCatchWrapper(async (req: Request, res: Response) =
   if (targetType === 'event' && !event.flagged) {
     await Event.updateOne({ _id: event._id }, { flagged: true })
   }
+
+  await notifyAdmins({
+    type: 'report_submitted',
+    title: targetType === 'event' ? 'Event reported' : 'Organizer reported',
+    message: `${reporter.fullname} reported "${event.title || 'an event'}"${targetType === 'organizer' ? "'s organizer" : ''}: ${reason}`,
+    link:
+      targetType === 'event' ? `/admin/reports/flags/events/${event._id}` : `/admin/reports/flags/organizers/${event.organizer}`,
+  })
 
   return sendTsRestSuccess(res, 201, {
     success: true,

@@ -1,6 +1,7 @@
 import { Request, Response } from 'express'
 import { randomUUID } from 'crypto'
 import { sendTsRestError, sendTsRestSuccess } from '../lib/responseHandler.js'
+import { notifyAdmins } from '../lib/notify.js'
 import tryCatchWrapper from '../lib/tryCatchWrapper.js'
 import Event from '../models/event.js'
 import Order, { calculateOrderTotals } from '../models/order.js'
@@ -269,6 +270,12 @@ export const requestRefund = tryCatchWrapper(async (req: Request, res: Response)
     requestedBy: req.session?.userId,
     reason,
     amount: ticket.price,
+  })
+  await notifyAdmins({
+    type: 'refund_requested',
+    title: 'New refund request',
+    message: `${ticket.attendeeName} requested a refund of ₦${ticket.price.toLocaleString('en-NG')} for "${event.title || 'an event'}".`,
+    link: `/admin/refunds/${refundRequest._id}`,
   })
 
   return sendTsRestSuccess(res, 201, {

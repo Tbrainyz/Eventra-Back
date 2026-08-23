@@ -3,6 +3,7 @@ import mongoose from 'mongoose'
 import { sendTsRestError, sendTsRestSuccess } from '../lib/responseHandler.js'
 import tryCatchWrapper from '../lib/tryCatchWrapper.js'
 import { sanitizeUser } from '../lib/utils.js'
+import { notifyAdmins } from '../lib/notify.js'
 import Event from '../models/event.js'
 import Order from '../models/order.js'
 import Ticket from '../models/ticket.js'
@@ -110,6 +111,12 @@ export const submitOrganizerProfileForReview = tryCatchWrapper(async (req: Reque
   user.organizerProfile!.approvalStatus = 'pending'
   user.organizerProfile!.submittedAt = new Date()
   await user.save()
+  await notifyAdmins({
+    type: 'organizer_submitted',
+    title: 'New organizer awaiting verification',
+    message: `${user.organizerProfile?.businessName || user.fullname} submitted their profile for review.`,
+    link: `/admin/approvals/organizers/${user._id}`,
+  })
 
   return sendTsRestSuccess(res, 200, {
     success: true,

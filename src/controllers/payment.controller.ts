@@ -4,6 +4,7 @@ import { env } from '../config/keys.js'
 import { getPromotionPackage } from '../config/promotionPackages.js'
 import logger from '../config/logger.js'
 import { getPlatformSettings } from '../lib/platformSettings.js'
+import { notifyAdmins } from '../lib/notify.js'
 import { sendTsRestError, sendTsRestSuccess } from '../lib/responseHandler.js'
 import tryCatchWrapper from '../lib/tryCatchWrapper.js'
 import Event from '../models/event.js'
@@ -120,6 +121,13 @@ export const handlePromotionPayment = async (reference: string): Promise<void> =
     event.promotion.startsAt = startsAt
     event.promotion.endsAt = new Date(startsAt.getTime() + durationDays * 24 * 60 * 60 * 1000)
     event.isPromoted = true
+  } else {
+    await notifyAdmins({
+      type: 'promotion_submitted',
+      title: 'New promotion awaiting review',
+      message: `A promotion request for "${event.title || 'an event'}" has been paid and needs approval.`,
+      link: `/admin/events/${event._id}`,
+    })
   }
   await event.save()
 }
@@ -133,7 +141,7 @@ export const handlePromotionPayment = async (reference: string): Promise<void> =
  * keyed on Paystack's own dispute id so a re-delivered webhook never
  * creates a duplicate row.
  */
-const handleDisputeEvent = async (data: any): Promise<void> => {
+const handleDisputeEvent = async (event: string, data: any): Promise<void> => {
   const paystackDisputeId = String(data.id)
   const transactionReference: string | undefined = data.transaction?.reference
 
@@ -157,6 +165,15 @@ const handleDisputeEvent = async (data: any): Promise<void> => {
     },
     { upsert: true, new: true }
   )
+
+  if (event === 'charge.dispute.create') {
+    await notifyAdmins({
+      type: 'dispute_created',
+      title: 'New payment dispute',
+      message: `A chargeback for ₦${order.subtotal.toLocaleString('en-NG')} was raised on order ${order._id}.`,
+      link: '/admin/refunds',
+    })
+  }
 }
 
 const handleTransferOutcome = async (event: string, reference: string): Promise<void> => {
@@ -208,7 +225,7 @@ export const paystackWebhook = tryCatchWrapper(async (req: Request, res: Respons
   } else if ((event === 'transfer.success' || event === 'transfer.failed' || event === 'transfer.reversed') && reference) {
     await handleTransferOutcome(event, reference)
   } else if (event === 'charge.dispute.create' || event === 'charge.dispute.resolve') {
-    await handleDisputeEvent(data)
+    await handleDisputeEvent(event, data)
   }
   // Anything else is acknowledged and ignored, so Paystack doesn't retry forever.
 

@@ -1,4 +1,5 @@
 import logger from '../config/logger.js'
+import { notifyUser } from '../lib/notify.js'
 import Order from '../models/order.js'
 import User from '../models/user.js'
 import { PaystackService } from '../services/paystack.service.js'
@@ -66,14 +67,39 @@ export const processDuePayouts = async (): Promise<{ processed: number; initiate
     return { processed: 0, initiated: 0, skipped: 0 }
   }
 
+  const releasedByOrganizer = new Map<string, { organizerId: string; eventTitle: string; amount: number }>()
+
   for (const order of dueOrders) {
     const result = await initiateOrderPayout(order)
     if (result.ok) {
       initiated++
+      // Grouped per organizer+event rather than one notification per
+      // order — an organizer with 40 orders released in the same batch
+      // should see one "payout released" notification, not 40.
+      const key = `${order.eventDoc.organizer}:${order.eventDoc._id}`
+      const existing = releasedByOrganizer.get(key)
+      if (existing) {
+        existing.amount += order.organizerEarnings
+      } else {
+        releasedByOrganizer.set(key, {
+          organizerId: String(order.eventDoc.organizer),
+          eventTitle: order.eventDoc.title ?? 'your event',
+          amount: order.organizerEarnings,
+        })
+      }
     } else {
       logger.error(`Payout cron: ${result.reason} — skipping order ${order._id}`)
       skipped++
     }
+  }
+
+  for (const { organizerId, eventTitle, amount } of releasedByOrganizer.values()) {
+    await notifyUser(organizerId, {
+      type: 'payout_released',
+      title: 'Payout released',
+      message: `₦${amount.toLocaleString('en-NG')} has been sent to your bank account for "${eventTitle}".`,
+      link: '/organizer/payouts',
+    })
   }
 
   logger.info({ initiated, skipped }, 'Payout cron: batch complete')
