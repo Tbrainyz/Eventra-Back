@@ -330,6 +330,15 @@ export const listPublicEvents = tryCatchWrapper(async (req: Request, res: Respon
 
   const filter: Record<string, any> = { status: { $in: ['approved', 'postponed'] } }
 
+  // Past events never make it into the public discovery listing —
+  // `status: 'approved'` alone doesn't imply "still upcoming", it just
+  // means "was approved and never got un-published"; nothing else here
+  // excluded a completed event. Falls back to startDate for events with
+  // no endDate set (an online event with only a start time, for example).
+  // A postponed event's startDate/endDate get moved forward by
+  // postponeEvent, so this naturally keeps showing it once rescheduled.
+  filter.$expr = { $gte: [{ $ifNull: ['$endDate', '$startDate'] }, new Date()] }
+
   // Category — accepts a single id or a comma-separated list, e.g. ?category=a,b,c
   if (req.query.category && typeof req.query.category === 'string') {
     const categoryIds = req.query.category.split(',').map(id => id.trim()).filter(isValidObjectId)

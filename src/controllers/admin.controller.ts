@@ -907,6 +907,11 @@ export const listAwaitingPayouts = tryCatchWrapper(async (req: Request, res: Res
       $group: {
         _id: { organizer: '$eventDoc.organizer', event: '$eventDoc._id' },
         organizerName: { $first: { $ifNull: ['$organizerDoc.organizerProfile.businessName', '$organizerDoc.fullname'] } },
+        // Surfaced so the client can warn *before* Release is clicked,
+        // rather than the admin only finding out it can't work after
+        // hitting a 422 — see releaseEventPayout's doc comment for why
+        // this happens (only approveOrganizer ever creates this).
+        hasPayoutRecipient: { $first: { $ifNull: [{ $ne: ['$organizerDoc.organizerProfile.paystackRecipientCode', null] }, false] } },
         eventTitle: { $first: '$eventDoc.title' },
         eventStartDate: { $first: '$eventDoc.startDate' },
         amount: { $sum: '$organizerEarnings' },
@@ -927,6 +932,7 @@ export const listAwaitingPayouts = tryCatchWrapper(async (req: Request, res: Res
       amount: g.amount,
       releaseDate,
       status,
+      hasPayoutRecipient: Boolean(g.hasPayoutRecipient),
     }
   })
 
@@ -991,6 +997,7 @@ export const releaseEventPayout = tryCatchWrapper(async (req: Request, res: Resp
   let released = 0
   let failed = 0
   let releasedAmount = 0
+  let firstFailureReason: string | undefined
   for (const order of orders) {
     const result = await initiateOrderPayout(order)
     if (result.ok) {
@@ -998,22 +1005,34 @@ export const releaseEventPayout = tryCatchWrapper(async (req: Request, res: Resp
       releasedAmount += order.organizerEarnings
     } else {
       failed++
+      firstFailureReason ??= result.reason
     }
   }
-  if (released > 0) {
-    await logAdminAction(req, `Released payout ₦${releasedAmount.toLocaleString('en-NG')}`, orders[0].eventDoc?.title || 'event')
-    await notifyUser(organizerId, {
-      type: 'payout_released',
-      title: 'Payout released',
-      message: `₦${releasedAmount.toLocaleString('en-NG')} has been sent to your bank account for "${orders[0].eventDoc?.title || 'your event'}".`,
-      link: '/organizer/payouts',
-    })
+
+  // This used to always return 200 even when every single order failed
+  // (e.g. released: 0, failed: 3) — which looked like a silent no-op to
+  // whoever clicked Release, with no indication anything went wrong. Now
+  // a release that helped nobody is a real error, with the actual reason
+  // (most commonly: the organizer has no Paystack recipient on file yet
+  // — that's only ever created by approveOrganizer, so an organizer
+  // marked "approved" any other way, e.g. seeded test data, won't have
+  // one) surfaced back to the admin instead of swallowed.
+  if (released === 0) {
+    return sendTsRestError(res, 422, firstFailureReason ? `Payout release failed: ${firstFailureReason}` : 'Payout release failed for an unknown reason')
   }
+
+  await logAdminAction(req, `Released payout ₦${releasedAmount.toLocaleString('en-NG')}`, orders[0].eventDoc?.title || 'event')
+  await notifyUser(organizerId, {
+    type: 'payout_released',
+    title: 'Payout released',
+    message: `₦${releasedAmount.toLocaleString('en-NG')} has been sent to your bank account for "${orders[0].eventDoc?.title || 'your event'}".`,
+    link: '/organizer/payouts',
+  })
 
   return sendTsRestSuccess(res, 200, {
     success: true,
-    message: `Released ${released} payout${released === 1 ? '' : 's'}${failed > 0 ? `, ${failed} failed` : ''}`,
-    body: { released, failed },
+    message: `Released ${released} payout${released === 1 ? '' : 's'}${failed > 0 ? `, ${failed} failed (${firstFailureReason})` : ''}`,
+    body: { released, failed, failureReason: firstFailureReason },
   })
 })
 
@@ -1605,4 +1624,49 @@ export const acceptDisputeLoss = tryCatchWrapper(async (req: Request, res: Respo
   await logAdminAction(req, 'Accepted dispute loss', `₦${dispute.amount.toLocaleString('en-NG')}`)
 
   return sendTsRestSuccess(res, 200, { success: true, message: 'Dispute conceded — Paystack will refund the customer', body: dispute.toObject() })
+})
+
+/**
+ * Backfills a Paystack transfer recipient for an organizer who's already
+ * `approved` but has none — the only other place this ever gets created
+ * is inside approveOrganizer itself, which only runs once, at approval
+ * time. An organizer approved before that logic existed (or via direct
+ * DB/seed writes, bypassing the endpoint entirely) is otherwise stuck:
+ * they never show up in the pending-organizers queue again, so there's no
+ * "re-approve" action available to retroactively create one. This is that
+ * escape hatch, reachable from the (non-pending) Organizer detail page.
+ */
+export const createPayoutRecipient = tryCatchWrapper(async (req: Request, res: Response) => {
+  const { id } = req.params
+
+  const organizer = await User.findOne({ _id: id, role: 'organizer' })
+  if (!organizer || !organizer.organizerProfile) {
+    return sendTsRestError(res, 404, 'Organizer not found')
+  }
+
+  if (organizer.organizerProfile.paystackRecipientCode) {
+    return sendTsRestError(res, 409, 'This organizer already has a payout recipient on file')
+  }
+
+  const { accountName, accountNumber, bankCode } = organizer.organizerProfile
+  if (!accountName || !accountNumber || !bankCode) {
+    return sendTsRestError(res, 400, 'This organizer has not completed their bank details yet')
+  }
+
+  try {
+    const recipient = await PaystackService.createTransferRecipient({ name: accountName, accountNumber, bankCode })
+    organizer.organizerProfile.paystackRecipientCode = recipient.recipientCode
+    organizer.organizerProfile.isPayoutReady = true
+    await organizer.save()
+  } catch (error: any) {
+    return sendTsRestError(res, 502, `Could not create a payout recipient with Paystack: ${error.message}`)
+  }
+
+  await logAdminAction(req, 'Created payout recipient', organizer.organizerProfile.businessName || organizer.fullname)
+
+  return sendTsRestSuccess(res, 200, {
+    success: true,
+    message: 'Payout recipient created — this organizer can now receive payouts',
+    body: sanitizeUser(organizer.toObject()),
+  })
 })

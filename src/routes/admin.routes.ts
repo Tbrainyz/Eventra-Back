@@ -6,6 +6,7 @@ import {
   approveRefundRequest,
   acceptDisputeLoss,
   challengeDispute,
+  createPayoutRecipient,
   dismissEventFlag,
   dismissOrganizerFlag,
   flagEvent,
@@ -76,6 +77,7 @@ router.get('/organizers/pending', listPendingOrganizers)
 router.get('/organizers', listOrganizersForAdmin)
 router.get('/organizers/:id', getOrganizerDetailForAdmin)
 router.patch('/organizers/:id/approve', approveOrganizer)
+router.post('/organizers/:id/payout-recipient', requireAdminTier('owner', 'admin'), createPayoutRecipient)
 router.patch('/organizers/:id/reject', rejectOrganizer)
 
 // Event approval + management
