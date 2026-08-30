@@ -1,5 +1,6 @@
 import sendEmail from '../email/send-email.js'
 import {
+  adminInviteTemplate,
   dailySalesSummaryTemplate,
   eventApprovedTemplate,
   eventCancelledTemplate,
@@ -72,6 +73,46 @@ export class EmailService {
     await EmailQueue.create({
       to: user.email,
       subject: 'Reset your password - Eventra',
+      html: htmlBody,
+      priority: 'high',
+      status: 'queued',
+      retryCount: 0,
+      nextRetryAt: new Date(Date.now() + 5 * 60 * 1000),
+    })
+    return { success: false, queued: true }
+  }
+
+  /**
+   * Sent by inviteAdmin (admin.controller.ts) when an owner adds someone to
+   * the admin console. Same delivery mechanics as sendPasswordResetEmail
+   * (queues on failure, etc.) but its own subject/template — see
+   * adminInviteTemplate's doc comment for why it isn't just reused as-is.
+   */
+  static async sendAdminInviteEmail({
+    user,
+    otp,
+    inviterName,
+    roleLabel,
+  }: {
+    user: any
+    otp: string
+    inviterName: string
+    roleLabel: string
+  }): Promise<{ success: boolean; queued: boolean }> {
+    const htmlBody = adminInviteTemplate(user.fullname, otp, inviterName, roleLabel)
+    const subject = "You're invited to Eventra's admin team"
+    const result = await sendEmail({
+      email: user.email,
+      subject,
+      message: htmlBody,
+    })
+    if (result.success) {
+      return { success: true, queued: false }
+    }
+
+    await EmailQueue.create({
+      to: user.email,
+      subject,
       html: htmlBody,
       priority: 'high',
       status: 'queued',

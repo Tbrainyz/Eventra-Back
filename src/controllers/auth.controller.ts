@@ -171,6 +171,19 @@ export const googleAuth = tryCatchWrapper(async (req: Request, res: Response) =>
     return sendTsRestError(res, 403, 'This account has been suspended. Contact support for help')
   }
 
+  // Same cross-portal guard as the password login path below — `role`
+  // here doubles as which Google button was clicked (attendee vs
+  // organizer; admin has no Google option), so an existing account of a
+  // different role can't sign in through the wrong portal's button
+  // either. A brand-new account always matches trivially, since it was
+  // just created a few lines up with this exact role.
+  if (role) {
+    const isOrganizerInProgress = role === 'organizer' && user.role === 'attendee' && Boolean(user.organizerProfile)
+    if (user.role !== role && !isOrganizerInProgress) {
+      return sendTsRestError(res, 401, `No ${role} account found with this email`)
+    }
+  }
+
   req.session.userId = user._id.toString()
   req.session.role = user.role
   req.session.adminRole = user.role === 'admin' ? (user.adminRole ?? 'admin') : undefined
@@ -183,7 +196,7 @@ export const googleAuth = tryCatchWrapper(async (req: Request, res: Response) =>
 })
 
 export const login = tryCatchWrapper(async (req: Request, res: Response) => {
-  const { email, password } = req.body
+  const { email, password, context } = req.body
 
   const user = await User.findOne({ email }).select('+password')
   if (!user) {
@@ -205,6 +218,22 @@ export const login = tryCatchWrapper(async (req: Request, res: Response) => {
 
   if (!user.isVerified) {
     return sendTsRestError(res, 403, 'Please verify your email before logging in')
+  }
+
+  // Each portal (attendee /auth/login, organizer /organizer/auth/login,
+  // admin /admin/auth/login) only ever wants accounts of its own role —
+  // without this, correct credentials for any account worked on any of
+  // the three login pages, since they all hit this same endpoint.
+  // Organizer is the one exception: someone mid-onboarding (has started
+  // an organizerProfile but hasn't submitted it for review yet — see
+  // submitOrganizerProfileForReview, the only other place role flips to
+  // 'organizer') still has role 'attendee' and needs to get back into
+  // their in-progress setup, so that case is let through too.
+  if (context) {
+    const isOrganizerInProgress = context === 'organizer' && user.role === 'attendee' && Boolean(user.organizerProfile)
+    if (user.role !== context && !isOrganizerInProgress) {
+      return sendTsRestError(res, 401, `No ${context} account found with this email`)
+    }
   }
 
   req.session.userId = user._id.toString()
@@ -265,7 +294,22 @@ export const forgotPassword = tryCatchWrapper(async (req: Request, res: Response
   user.passwordResetOTPExpiry = new Date(Date.now() + OTP_TTL_MS)
   await user.save()
 
-  await EmailService.sendPasswordResetEmail({ user, otp })
+  // A still-pending invitee using "Resend code" on the accept-invite page
+  // (they're not logged in, so they can't hit the owner-only
+  // resendAdminInvite endpoint) hits this same public endpoint — send the
+  // invite-flavored email here too, not the generic "reset your
+  // password" one, so the copy stays consistent with what got them here.
+  if (user.invitedAt && !user.inviteAcceptedAt) {
+    const inviter = user.invitedBy ? await User.findById(user.invitedBy).select('fullname').lean() : null
+    await EmailService.sendAdminInviteEmail({
+      user,
+      otp,
+      inviterName: inviter?.fullname ?? 'An admin',
+      roleLabel: user.adminRole === 'support' ? 'a Support' : 'an Admin',
+    })
+  } else {
+    await EmailService.sendPasswordResetEmail({ user, otp })
+  }
 
   return genericResponse()
 })
@@ -291,6 +335,14 @@ export const resetPassword = tryCatchWrapper(async (req: Request, res: Response)
   user.password = newPassword
   user.passwordResetOTP = undefined
   user.passwordResetOTPExpiry = undefined
+  // If this was an invited admin's first-ever password set (not a normal
+  // "I forgot my password" reset), mark the invite accepted — this is
+  // what flips them from PENDING to a real team member on Settings.
+  // Harmless no-op for every other account, since invitedAt is only ever
+  // set by inviteAdmin.
+  if (user.invitedAt && !user.inviteAcceptedAt) {
+    user.inviteAcceptedAt = new Date()
+  }
   await user.save()
 
   return sendTsRestSuccess<undefined>(res, 200, {

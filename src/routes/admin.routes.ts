@@ -23,6 +23,8 @@ import {
   getRefundRequestDetail,
   getSettings,
   inviteAdmin,
+  resendAdminInvite,
+  revokeAdminInvite,
   listAttendeesForAdmin,
   listAuditLog,
   listAwaitingPayouts,
@@ -139,5 +141,7 @@ router.get('/settings', getSettings)
 router.patch('/settings', requireAdminTier('owner'), updateSettings)
 router.patch('/settings/admins/:id/role', requireAdminTier('owner'), updateAdminRole)
 router.post('/settings/admins/invite', requireAdminTier('owner'), validateFormData(inviteAdminSchema), inviteAdmin)
+router.post('/settings/admins/:id/resend-invite', requireAdminTier('owner'), resendAdminInvite)
+router.delete('/settings/admins/:id/invite', requireAdminTier('owner'), revokeAdminInvite)
 
 export default router

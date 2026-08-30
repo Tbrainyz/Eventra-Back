@@ -1427,7 +1427,7 @@ export const listAuditLog = tryCatchWrapper(async (req: Request, res: Response) 
 export const getSettings = tryCatchWrapper(async (req: Request, res: Response) => {
   const settings = await getPlatformSettings()
 
-  const admins = await User.find({ role: 'admin' }).select('fullname email adminRole').sort({ createdAt: 1 }).lean()
+  const admins = await User.find({ role: 'admin' }).select('fullname email adminRole invitedAt inviteAcceptedAt').sort({ createdAt: 1 }).lean()
 
   return sendTsRestSuccess(res, 200, {
     success: true,
@@ -1439,7 +1439,15 @@ export const getSettings = tryCatchWrapper(async (req: Request, res: Response) =
       autoApproveEvents: settings.autoApproveEvents,
       autoApprovePromotions: settings.autoApprovePromotions,
       maintenanceMode: settings.maintenanceMode,
-      admins: admins.map(a => ({ _id: a._id, fullname: a.fullname, email: a.email, adminRole: a.adminRole ?? 'admin' })),
+      admins: admins.map(a => ({
+        _id: a._id,
+        fullname: a.fullname,
+        email: a.email,
+        adminRole: a.adminRole ?? 'admin',
+        // Pending means invited but never actually set a password yet —
+        // see inviteAdmin/resetPassword's comments on how this gets set.
+        isPending: Boolean(a.invitedAt && !a.inviteAcceptedAt),
+      })),
     },
   })
 })
@@ -1495,6 +1503,8 @@ const OTP_TTL_MS = 15 * 60 * 1000 // 15 minutes — matches auth.controller.ts's
  * They land on the same reset-password form, set a real password, and log
  * in normally from there.
  */
+const ADMIN_ROLE_LABELS: Record<'admin' | 'support', string> = { admin: 'an Admin', support: 'a Support' }
+
 export const inviteAdmin = tryCatchWrapper(async (req: Request, res: Response) => {
   const { fullname, email, adminRole } = req.body as { fullname: string; email: string; adminRole: 'admin' | 'support' }
 
@@ -1504,7 +1514,8 @@ export const inviteAdmin = tryCatchWrapper(async (req: Request, res: Response) =
   }
 
   const otp = generateOTP()
-  const temporaryPassword = crypto.randomBytes(24).toString('hex') // never sent anywhere — they set their own via the reset flow below
+  const temporaryPassword = crypto.randomBytes(24).toString('hex') // never sent anywhere — they set their own via the accept-invite flow below
+  const inviter = await User.findById(req.session.userId).select('fullname').lean()
 
   const admin = await User.create({
     fullname,
@@ -1515,9 +1526,16 @@ export const inviteAdmin = tryCatchWrapper(async (req: Request, res: Response) =
     isVerified: true, // owner-initiated, not self-registered — no need to re-verify the email address itself
     passwordResetOTP: otp,
     passwordResetOTPExpiry: new Date(Date.now() + OTP_TTL_MS),
+    invitedAt: new Date(),
+    invitedBy: req.session.userId,
   })
 
-  await EmailService.sendPasswordResetEmail({ user: admin, otp })
+  await EmailService.sendAdminInviteEmail({
+    user: admin,
+    otp,
+    inviterName: inviter?.fullname ?? 'An admin',
+    roleLabel: ADMIN_ROLE_LABELS[adminRole],
+  })
     .then(() => {})
     .catch(error => logger.error({ err: error }, `Admin invite email failed for ${admin._id}`))
 
@@ -1525,9 +1543,75 @@ export const inviteAdmin = tryCatchWrapper(async (req: Request, res: Response) =
 
   return sendTsRestSuccess(res, 201, {
     success: true,
-    message: `Invited ${fullname} — they'll get an email to set their password`,
-    body: { _id: admin._id, fullname: admin.fullname, email: admin.email, adminRole: admin.adminRole },
+    message: `Invited ${fullname} — they'll get an email to set up their account`,
+    body: {
+      _id: admin._id,
+      fullname: admin.fullname,
+      email: admin.email,
+      adminRole: admin.adminRole,
+      invitedAt: admin.invitedAt,
+      inviteAcceptedAt: admin.inviteAcceptedAt,
+    },
   })
+})
+
+/**
+ * Regenerates the invite OTP and resends the invite email — for a
+ * PENDING admin only (inviteAcceptedAt not set). An already-accepted
+ * admin has a real password of their own choosing; there's no "invite"
+ * left to resend for them, they'd use the normal forgot-password flow
+ * like anyone else.
+ */
+export const resendAdminInvite = tryCatchWrapper(async (req: Request, res: Response) => {
+  const { id } = req.params
+
+  const admin = await User.findOne({ _id: id, role: 'admin' })
+  if (!admin) return sendTsRestError(res, 404, 'Admin not found')
+  if (admin.inviteAcceptedAt || !admin.invitedAt) {
+    return sendTsRestError(res, 400, 'This admin has already set up their account')
+  }
+
+  const otp = generateOTP()
+  admin.passwordResetOTP = otp
+  admin.passwordResetOTPExpiry = new Date(Date.now() + OTP_TTL_MS)
+  await admin.save()
+
+  const inviter = await User.findById(req.session.userId).select('fullname').lean()
+  await EmailService.sendAdminInviteEmail({
+    user: admin,
+    otp,
+    inviterName: inviter?.fullname ?? 'An admin',
+    roleLabel: ADMIN_ROLE_LABELS[(admin.adminRole as 'admin' | 'support') ?? 'admin'],
+  })
+
+  await logAdminAction(req, 'Resent invite', admin.fullname)
+
+  return sendTsRestSuccess<undefined>(res, 200, { success: true, message: `Invite resent to ${admin.email}` })
+})
+
+/**
+ * Deletes a PENDING invite outright — safe to hard-delete, since the
+ * account was never actually usable (nobody knows its password) and
+ * nothing else in the system references it yet. An already-accepted
+ * admin can't be revoked this way — use suspend instead, which is
+ * reversible and doesn't destroy their audit-log history.
+ */
+export const revokeAdminInvite = tryCatchWrapper(async (req: Request, res: Response) => {
+  const { id } = req.params
+
+  const admin = await User.findOne({ _id: id, role: 'admin' })
+  if (!admin) return sendTsRestError(res, 404, 'Admin not found')
+  if (admin.inviteAcceptedAt || !admin.invitedAt) {
+    return sendTsRestError(res, 400, 'This admin has already set up their account — suspend them instead of revoking')
+  }
+  if (String(admin._id) === req.session.userId) {
+    return sendTsRestError(res, 400, "You can't revoke your own invite")
+  }
+
+  await User.deleteOne({ _id: id })
+  await logAdminAction(req, 'Revoked invite', admin.fullname)
+
+  return sendTsRestSuccess<undefined>(res, 200, { success: true, message: `Invite for ${admin.email} revoked` })
 })
 
 // ---------------------------------------------------------------------------

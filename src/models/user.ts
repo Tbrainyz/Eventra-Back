@@ -59,11 +59,11 @@ export interface IUser extends Document {
   notificationPreferences: INotificationPreferences
   organizerNotificationPreferences: IOrganizerNotificationPreferences
   role: 'attendee' | 'organizer' | 'admin'
-  // Display-only sub-role for the "Admin, Teams & Roles" table on Settings
-  // — nothing in requireAdmin or any route currently checks this, so it
-  // grants no additional or reduced access on its own. Only meaningful
-  // when role === 'admin'. Treat as 'admin' when unset (every admin
-  // account created before this field existed).
+  // Display-only sub-role for the "Admin, Teams & Roles" table on
+  // Settings — actually enforced now via requireAdminTier
+  // (middlewares/adminPermission.middleware.ts), not just a label.
+  // Only meaningful when role === 'admin'. Treat as 'admin' when unset
+  // (every admin account created before this field existed).
   adminRole?: 'owner' | 'admin' | 'support'
   isVerified: boolean
   isSuspended: boolean
@@ -71,6 +71,16 @@ export interface IUser extends Document {
   emailVerificationOTPExpiry?: Date
   passwordResetOTP?: string
   passwordResetOTPExpiry?: Date
+  // Admin-invite tracking (see inviteAdmin in admin.controller.ts) — an
+  // invited admin's account exists from the moment the invite is sent,
+  // not just once they accept it, so "pending" has to be tracked
+  // explicitly rather than inferred from isVerified (which is already
+  // true for an invited account — see inviteAdmin's own comment on why).
+  // Only ever set for role === 'admin' accounts created via invite, never
+  // for accounts created through /auth/register.
+  invitedAt?: Date
+  invitedBy?: mongoose.Types.ObjectId
+  inviteAcceptedAt?: Date
   organizerProfile?: IOrganizerProfile
   savedEvents: mongoose.Types.ObjectId[]
   createdAt: Date
@@ -202,6 +212,16 @@ const UserSchema = new Schema<IUser>(
     passwordResetOTPExpiry: {
       type: Date,
       select: false,
+    },
+    invitedAt: {
+      type: Date,
+    },
+    invitedBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+    },
+    inviteAcceptedAt: {
+      type: Date,
     },
     organizerProfile: {
       type: OrganizerProfileSchema,

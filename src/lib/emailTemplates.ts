@@ -438,6 +438,27 @@ export const resetPasswordTemplate = (name: string, code: string) =>
   )
 
 /**
+ * Sent when an owner invites someone into the admin console — deliberately
+ * its own template rather than reusing resetPasswordTemplate verbatim,
+ * even though both ultimately verify against the same OTP field. "Reset
+ * your password" makes no sense to someone who's never had one; this one
+ * frames it as what it actually is, setting up a brand-new account.
+ */
+export const adminInviteTemplate = (name: string, code: string, inviterName: string, roleLabel: string) =>
+  baseLayout(
+    "You're invited to Eventra's admin team 🛡️",
+    name,
+    `
+      ${inviterName} has added you as ${roleLabel} on Eventra's admin console.
+      Enter this code to set your password and get started.
+    `,
+    undefined,
+    undefined,
+    'This code expires in 15 minutes — ask whoever invited you to resend it if it lapses.',
+    code
+  )
+
+/**
  * For someone who checked out or RSVP'd as a guest (no account) and wants
  * to view/manage their ticket later. No name to greet them by here — a
  * guest's name lives on the ticket, not anywhere this template has access

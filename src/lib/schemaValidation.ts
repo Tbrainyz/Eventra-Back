@@ -24,6 +24,14 @@ export const resendOtpSchema = z.object({
 export const loginSchema = z.object({
   email: z.string().trim().toLowerCase().email('Invalid email address'),
   password: z.string().min(1, 'Password is required'),
+  // Which login page this came through — attendee (/auth/login), organizer
+  // (/organizer/auth/login), or admin (/admin/auth/login). Optional so
+  // existing API clients that don't send it still work exactly as before;
+  // when present, the login controller rejects a real password match if
+  // the account's actual role doesn't match, so an organizer's or admin's
+  // credentials can't be used to sign into the attendee-facing app (or
+  // vice versa) just because they hit the same underlying endpoint.
+  context: z.enum(['attendee', 'organizer', 'admin']).optional(),
 })
 
 export const googleAuthSchema = z.object({
