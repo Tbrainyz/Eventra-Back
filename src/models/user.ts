@@ -149,10 +149,12 @@ const UserSchema = new Schema<IUser>(
     phone: {
       type: String,
       required: function (this: IUser) {
-        // Google sign-ups never collect a phone number, and neither does
-        // the organizer registration form — only a manual attendee
-        // sign-up needs one.
-        return !this.googleId && this.role !== 'organizer'
+        // Google sign-ups never collect a phone number, neither does the
+        // organizer registration form, and neither does inviteAdmin
+        // (admin.controller.ts) — an invited admin never fills out any
+        // form at all before their account exists. Only a manual
+        // attendee sign-up actually needs one.
+        return !this.googleId && this.role !== 'organizer' && this.role !== 'admin'
       },
       trim: true,
     },
